@@ -2,7 +2,7 @@ import path from 'node:path';
 import is from '@sindresorhus/is';
 import changelogFilenameRegex from 'changelog-filename-regex';
 import { logger } from '../../../../../../logger';
-import { PagedSourceResultsSchema } from '../../../../../../modules/platform/bitbucket/schema';
+import { PagedSourceResults } from '../../../../../../modules/platform/bitbucket/schema';
 import { BitbucketHttp } from '../../../../../../util/http/bitbucket';
 import { joinUrlParts } from '../../../../../../util/url';
 import { compareChangelogFilePath } from '../common';
@@ -37,7 +37,7 @@ export async function getReleaseNotesMd(
       {
         paginate: true,
       },
-      PagedSourceResultsSchema,
+      PagedSourceResults,
     )
   ).body.values;
 
@@ -61,7 +61,7 @@ export async function getReleaseNotesMd(
     );
   }
 
-  const fileRes = await bitbucketHttp.get(
+  const fileRes = await bitbucketHttp.getText(
     joinUrlParts(
       apiBaseUrl,
       '2.0/repositories',

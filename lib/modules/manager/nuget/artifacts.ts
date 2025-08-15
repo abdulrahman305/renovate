@@ -1,5 +1,5 @@
 import { quote } from 'shlex';
-import { join } from 'upath';
+import upath from 'upath';
 import { TEMPORARY_ERROR } from '../../../constants/error-messages';
 import { logger } from '../../../logger';
 import { exec } from '../../../util/exec';
@@ -21,11 +21,16 @@ import type {
 } from '../types';
 import { createNuGetConfigXml } from './config-formatter';
 import {
+  GLOBAL_JSON,
   MSBUILD_CENTRAL_FILE,
   NUGET_CENTRAL_FILE,
   getDependentPackageFiles,
 } from './package-tree';
-import { getConfiguredRegistries, getDefaultRegistries } from './util';
+import {
+  findGlobalJson,
+  getConfiguredRegistries,
+  getDefaultRegistries,
+} from './util';
 
 async function createCachedNuGetConfigFile(
   nugetCacheDir: string,
@@ -36,7 +41,7 @@ async function createCachedNuGetConfigFile(
 
   const contents = createNuGetConfigXml(registries);
 
-  const cachedNugetConfigFile = join(nugetCacheDir, `nuget.config`);
+  const cachedNugetConfigFile = upath.join(nugetCacheDir, `nuget.config`);
   await ensureDir(nugetCacheDir);
   await outputCacheFile(cachedNugetConfigFile, contents);
 
@@ -48,23 +53,23 @@ async function runDotnetRestore(
   dependentPackageFileNames: string[],
   config: UpdateArtifactsConfig,
 ): Promise<void> {
-  const nugetCacheDir = join(privateCacheDir(), 'nuget');
+  const nugetCacheDir = upath.join(privateCacheDir(), 'nuget');
 
   const nugetConfigFile = await createCachedNuGetConfigFile(
     nugetCacheDir,
     packageFileName,
   );
 
+  const dotnetVersion =
+    config.constraints?.dotnet ??
+    (await findGlobalJson(packageFileName))?.sdk?.version;
   const execOptions: ExecOptions = {
     docker: {},
-    userConfiguredEnv: config.env,
     extraEnv: {
-      NUGET_PACKAGES: join(nugetCacheDir, 'packages'),
+      NUGET_PACKAGES: upath.join(nugetCacheDir, 'packages'),
       MSBUILDDISABLENODEREUSE: '1',
     },
-    toolConstraints: [
-      { toolName: 'dotnet', constraint: config.constraints?.dotnet },
-    ],
+    toolConstraints: [{ toolName: 'dotnet', constraint: dotnetVersion }],
   };
 
   const cmds = [
@@ -75,6 +80,13 @@ async function runDotnetRestore(
         )} --force-evaluate --configfile ${quote(nugetConfigFile)}`,
     ),
   ];
+
+  if (config.postUpdateOptions?.includes('dotnetWorkloadRestore')) {
+    cmds.unshift(
+      `dotnet workload restore --configfile ${quote(nugetConfigFile)}`,
+    );
+  }
+
   await exec(cmds, execOptions);
 }
 
@@ -94,8 +106,11 @@ export async function updateArtifacts({
     packageFileName.endsWith(`/${NUGET_CENTRAL_FILE}`) ||
     packageFileName.endsWith(`/${MSBUILD_CENTRAL_FILE}`);
 
+  const isGlobalJson = packageFileName === GLOBAL_JSON;
+
   if (
     !isCentralManagement &&
+    !isGlobalJson &&
     !regEx(/(?:cs|vb|fs)proj$/i).test(packageFileName)
   ) {
     // This could be implemented in the future if necessary.
@@ -112,6 +127,7 @@ export async function updateArtifacts({
   const deps = await getDependentPackageFiles(
     packageFileName,
     isCentralManagement,
+    isGlobalJson,
   );
   const packageFiles = deps.filter((d) => d.isLeaf).map((d) => d.name);
 
@@ -172,7 +188,6 @@ export async function updateArtifacts({
 
     return retArray.length > 0 ? retArray : null;
   } catch (err) {
-    // istanbul ignore if
     if (err.message === TEMPORARY_ERROR) {
       throw err;
     }
@@ -182,7 +197,7 @@ export async function updateArtifacts({
         artifactError: {
           lockFile: lockFileNames.join(', '),
           // error is written to stdout
-          stderr: err.stdout || err.message,
+          stderr: err.stdout ?? err.message,
         },
       },
     ];

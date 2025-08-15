@@ -1,37 +1,39 @@
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { envMock, mockExecAll } from '../../../../test/exec-util';
-import { env, fs, git, mocked, scm } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
+import { TEMPORARY_ERROR } from '../../../constants/error-messages';
 import * as docker from '../../../util/exec/docker';
 import type { UpdateArtifactsConfig } from '../types';
 import * as util from './util';
 import * as nuget from '.';
+import { envMock, mockExecAll } from '~test/exec-util';
+import { env, fs, git, scm } from '~test/util';
 
-jest.mock('../../../util/exec/env');
-jest.mock('../../../util/fs');
-jest.mock('../../../util/host-rules', () => mockDeep());
-jest.mock('../../../util/git');
-jest.mock('./util');
+vi.mock('../../../util/exec/env');
+vi.mock('../../../util/fs');
+vi.mock('../../../util/host-rules', () => mockDeep());
+vi.mock('./util');
 
-const { getDefaultRegistries } = mocked(util);
+const { getDefaultRegistries, findGlobalJson } = vi.mocked(util);
 
 process.env.CONTAINERBASE = 'true';
 
 const adminConfig: RepoGlobalConfig = {
   // `join` fixes Windows CI
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/renovate/cache'),
-  containerbaseDir: join('/tmp/renovate/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/renovate/cache'),
+  containerbaseDir: upath.join('/tmp/renovate/cache/containerbase'),
 };
 
 const config: UpdateArtifactsConfig = {};
 
 describe('modules/manager/nuget/artifacts', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     const realFs =
-      jest.requireActual<typeof import('../../../util/fs')>('../../../util/fs');
+      await vi.importActual<typeof import('../../../util/fs')>(
+        '../../../util/fs',
+      );
     getDefaultRegistries.mockReturnValue([]);
     env.getChildProcessEnv.mockReturnValue(envMock.basic);
     fs.privateCacheDir.mockImplementation(realFs.privateCacheDir);
@@ -42,6 +44,25 @@ describe('modules/manager/nuget/artifacts', () => {
 
   afterEach(() => {
     GlobalConfig.reset();
+  });
+
+  it('re-throws TEMPORARY_ERROR', async () => {
+    fs.getSiblingFileName.mockReturnValueOnce('packages.lock.json');
+    git.getFiles.mockResolvedValueOnce({
+      'packages.lock.json': 'Current packages.lock.json',
+    });
+    fs.getLocalFiles.mockResolvedValueOnce({
+      'packages.lock.json': 'New packages.lock.json',
+    });
+    fs.writeLocalFile.mockRejectedValueOnce(new Error(TEMPORARY_ERROR));
+    await expect(
+      nuget.updateArtifacts({
+        packageFileName: 'project.csproj',
+        updatedDeps: [{ depName: 'dep' }],
+        newPackageFileContent: '{}',
+        config,
+      }),
+    ).rejects.toThrow(TEMPORARY_ERROR);
   });
 
   it('aborts if no lock file found', async () => {
@@ -93,7 +114,7 @@ describe('modules/manager/nuget/artifacts', () => {
     ]);
   });
 
-  it('updates lock file', async () => {
+  it('runs workload restore and updates lock file', async () => {
     const execSnapshots = mockExecAll();
     fs.getSiblingFileName.mockReturnValueOnce('packages.lock.json');
     git.getFiles.mockResolvedValueOnce({
@@ -107,7 +128,7 @@ describe('modules/manager/nuget/artifacts', () => {
         packageFileName: 'project.csproj',
         updatedDeps: [{ depName: 'dep' }],
         newPackageFileContent: '{}',
-        config,
+        config: { ...config, postUpdateOptions: ['dotnetWorkloadRestore'] },
       }),
     ).toEqual([
       {
@@ -119,6 +140,17 @@ describe('modules/manager/nuget/artifacts', () => {
       },
     ]);
     expect(execSnapshots).toMatchObject([
+      {
+        cmd: 'dotnet workload restore --configfile /tmp/renovate/cache/__renovate-private-cache/nuget/nuget.config',
+        options: {
+          cwd: '/tmp/github/some/repo',
+          env: {
+            NUGET_PACKAGES:
+              '/tmp/renovate/cache/__renovate-private-cache/nuget/packages',
+            MSBUILDDISABLENODEREUSE: '1',
+          },
+        },
+      },
       {
         cmd: 'dotnet restore project.csproj --force-evaluate --configfile /tmp/renovate/cache/__renovate-private-cache/nuget/nuget.config',
         options: {
@@ -230,12 +262,14 @@ describe('modules/manager/nuget/artifacts', () => {
     fs.getLocalFiles.mockResolvedValueOnce({
       'packages.lock.json': 'New packages.lock.json',
     });
+
+    findGlobalJson.mockResolvedValueOnce({ sdk: { version: '7.0.100' } });
     expect(
       await nuget.updateArtifacts({
         packageFileName: 'project.csproj',
         updatedDeps: [{ depName: 'dep' }],
         newPackageFileContent: '{}',
-        config: { ...config, constraints: { dotnet: '7.0.100' } },
+        config,
       }),
     ).toEqual([
       {

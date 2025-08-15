@@ -1,7 +1,5 @@
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { mockExecAll } from '../../../../test/exec-util';
-import { fs, git, hostRules, mocked, partial } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import { logger } from '../../../logger';
@@ -9,12 +7,13 @@ import type { StatusResult } from '../../../util/git/types';
 import * as _datasource from '../../datasource';
 import type { UpdateArtifactsConfig, Upgrade } from '../types';
 import { updateArtifacts } from '.';
+import { mockExecAll } from '~test/exec-util';
+import { fs, git, hostRules, partial } from '~test/util';
 
-const datasource = mocked(_datasource);
+const datasource = vi.mocked(_datasource);
 
-jest.mock('../../../util/git');
-jest.mock('../../../util/fs');
-jest.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/fs');
+vi.mock('../../datasource', () => mockDeep());
 
 process.env.CONTAINERBASE = 'true';
 
@@ -31,9 +30,9 @@ const upgrades: Upgrade[] = [
 ];
 
 const adminConfig: RepoGlobalConfig = {
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/cache'),
-  containerbaseDir: join('/tmp/renovate/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/cache'),
+  containerbaseDir: upath.join('/tmp/renovate/cache/containerbase'),
   allowScripts: false,
 };
 

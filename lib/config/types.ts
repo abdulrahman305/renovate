@@ -1,11 +1,13 @@
 import type { PlatformId } from '../constants';
 import type { LogLevelRemap } from '../logger/types';
+import type { ManagerName } from '../manager-list.generated';
 import type { CustomManager } from '../modules/manager/custom/types';
 import type { RepoSortMethod, SortMethod } from '../modules/platform/types';
 import type { HostRule, SkipReason } from '../types';
 import type { StageName } from '../types/skip-reason';
 import type { GitNoVerifyOption } from '../util/git/types';
 import type { MergeConfidence } from '../util/merge-confidence/types';
+import type { Timestamp } from '../util/timestamp';
 
 export type RenovateConfigStage =
   | 'global'
@@ -36,6 +38,7 @@ export interface RenovateSharedConfig {
   automerge?: boolean;
   automergeSchedule?: string[];
   automergeStrategy?: MergeStrategy;
+  bumpVersions?: BumpVersionConfig[];
   branchName?: string;
   branchNameStrict?: boolean;
   branchPrefix?: string;
@@ -53,7 +56,7 @@ export interface RenovateSharedConfig {
   enabled?: boolean;
   enabledManagers?: string[];
   extends?: string[];
-  fileMatch?: string[];
+  managerFilePatterns?: string[];
   force?: RenovateConfig;
   gitIgnoredAuthors?: string[];
   group?: GroupConfig;
@@ -91,6 +94,7 @@ export interface RenovateSharedConfig {
   semanticCommitScope?: string | null;
   semanticCommitType?: string;
   semanticCommits?: 'auto' | 'enabled' | 'disabled';
+  skipArtifactsUpdate?: boolean;
   stopUpdatingLabel?: string;
   suppressNotifications?: string[];
   timezone?: string;
@@ -114,11 +118,14 @@ export interface GlobalOnlyConfig {
   forceCli?: boolean;
   gitNoVerify?: GitNoVerifyOption[];
   gitPrivateKey?: string;
+  gitPrivateKeyPassphrase?: string;
   globalExtends?: string[];
   mergeConfidenceDatasources?: string[];
   mergeConfidenceEndpoint?: string;
   platform?: PlatformId;
   prCommitsPerRunLimit?: number;
+  privateKey?: string;
+  privateKeyOld?: string;
   privateKeyPath?: string;
   privateKeyPathOld?: string;
   redisPrefix?: string;
@@ -126,18 +133,18 @@ export interface GlobalOnlyConfig {
   repositories?: RenovateRepository[];
   useCloudMetadataServices?: boolean;
   deleteConfigFile?: boolean;
+  deleteAdditionalConfigFile?: boolean;
 }
 
 // Config options used within the repository worker, but not user configurable
 // The below should contain config options where globalOnly=true
 export interface RepoGlobalConfig {
+  allowedCommands?: string[];
   allowCustomCrateRegistries?: boolean;
   allowPlugins?: boolean;
-  allowPostUpgradeCommandTemplating?: boolean;
   allowScripts?: boolean;
   allowedEnv?: string[];
   allowedHeaders?: string[];
-  allowedPostUpgradeCommands?: string[];
   binarySource?: 'docker' | 'global' | 'install' | 'hermit';
   cacheDir?: string;
   cacheHardTtlMinutes?: number;
@@ -160,8 +167,6 @@ export interface RepoGlobalConfig {
   migratePresets?: Record<string, string>;
   platform?: PlatformId;
   presetCachePersistence?: boolean;
-  privateKey?: string;
-  privateKeyOld?: string;
   httpCacheTtlDays?: number;
   autodiscoverRepoSort?: RepoSortMethod;
   autodiscoverRepoOrder?: SortMethod;
@@ -193,6 +198,7 @@ export type ExecutionMode = 'branch' | 'update';
 
 export interface PostUpgradeTasks {
   commands?: string[];
+  dataFileTemplate?: string;
   fileFilters?: string[];
   executionMode: ExecutionMode;
 }
@@ -206,6 +212,7 @@ export type RenovateRepository =
   | {
       repository: string;
       secrets?: Record<string, string>;
+      variables?: Record<string, string>;
     };
 
 export type UseBaseBranchConfigType = 'merge' | 'none';
@@ -218,8 +225,7 @@ export const allowedStatusCheckStrings = [
   'artifactError',
 ] as const;
 export type StatusCheckKey = (typeof allowedStatusCheckStrings)[number];
-export type UserEnv = Record<string, string>;
-
+type UserEnv = Record<string, string>;
 // TODO: Proper typings
 export interface RenovateConfig
   extends LegacyAdminConfig,
@@ -233,12 +239,14 @@ export interface RenovateConfig
   reportPath?: string;
   reportType?: 'logging' | 'file' | 's3' | null;
   depName?: string;
-  baseBranches?: string[];
+  /** user configurable base branch patterns*/
+  baseBranchPatterns?: string[];
   commitBody?: string;
   useBaseBranchConfig?: UseBaseBranchConfigType;
   baseBranch?: string;
   defaultBranch?: string;
   branchList?: string[];
+  cloneSubmodulesFilter?: string[];
   description?: string | string[];
   force?: RenovateConfig;
   errors?: ValidationMessage[];
@@ -267,9 +275,11 @@ export interface RenovateConfig
   dependencyDashboardFooter?: string;
   dependencyDashboardLabels?: string[];
   dependencyDashboardOSVVulnerabilitySummary?: 'none' | 'all' | 'unresolved';
+  dependencyDashboardReportAbandonment?: boolean;
   packageFile?: string;
   packageRules?: PackageRule[];
   postUpdateOptions?: string[];
+  branchConcurrentLimit?: number | null;
   prConcurrentLimit?: number;
   prHourlyLimit?: number;
   forkModeDisallowMaintainerEdits?: boolean;
@@ -293,6 +303,7 @@ export interface RenovateConfig
 
   fetchChangeLogs?: FetchChangeLogsOptions;
   secrets?: Record<string, string>;
+  variables?: Record<string, string>;
 
   constraints?: Record<string, string>;
   skipInstalls?: boolean | null;
@@ -303,11 +314,25 @@ export interface RenovateConfig
   customizeDashboard?: Record<string, string>;
 
   statusCheckNames?: Record<StatusCheckKey, string | null>;
+  /**
+   * User configured environment variables that Renovate uses when executing package manager commands
+   */
   env?: UserEnv;
   logLevelRemap?: LogLevelRemap[];
+
+  branchTopic?: string;
+  additionalBranchPrefix?: string;
+  sharedVariableName?: string;
+  minimumGroupSize?: number;
 }
 
-const CustomDatasourceFormats = ['json', 'plain', 'yaml', 'html'] as const;
+const CustomDatasourceFormats = [
+  'html',
+  'json',
+  'plain',
+  'toml',
+  'yaml',
+] as const;
 export type CustomDatasourceFormats = (typeof CustomDatasourceFormats)[number];
 
 export interface CustomDatasourceConfig {
@@ -347,6 +372,21 @@ export type UpdateType =
   | 'bump'
   | 'replacement';
 
+// These are the update types which can have configuration
+export const UpdateTypesOptions = [
+  'major',
+  'minor',
+  'patch',
+  'pin',
+  'digest',
+  'pinDigest',
+  'lockFileMaintenance',
+  'rollback',
+  'replacement',
+] as const;
+
+export type UpdateTypeOptions = (typeof UpdateTypesOptions)[number];
+
 export type FetchChangeLogsOptions = 'off' | 'branch' | 'pr';
 
 export type MatchStringsStrategy = 'any' | 'recursive' | 'combination';
@@ -356,6 +396,7 @@ export type MergeStrategy =
   | 'fast-forward'
   | 'merge-commit'
   | 'rebase'
+  | 'rebase-merge'
   | 'squash';
 
 // TODO: Proper typings
@@ -393,13 +434,17 @@ export interface ValidationMessage {
 }
 
 export type AllowedParents =
+  | '.'
+  | 'bumpVersions'
   | 'customDatasources'
   | 'customManagers'
   | 'hostRules'
   | 'logLevelRemap'
   | 'packageRules'
   | 'postUpgradeTasks'
-  | 'vulnerabilityAlerts';
+  | 'vulnerabilityAlerts'
+  | ManagerName
+  | UpdateTypeOptions;
 export interface RenovateOptionBase {
   /**
    * If true, the option can only be configured by people with access to the Renovate instance.
@@ -456,6 +501,16 @@ export interface RenovateOptionBase {
    * For internal use only: add it to any config option of type integer that supports negative integers
    */
   allowNegative?: boolean;
+
+  /**
+   * Managers which support this option, leave undefined if all managers support it.
+   */
+  supportedManagers?: string[];
+
+  /**
+   * Platforms which support this option, leave undefined if all platforms support it.
+   */
+  supportedPlatforms?: PlatformId[];
 }
 
 export interface RenovateArrayOption<
@@ -465,35 +520,25 @@ export interface RenovateArrayOption<
   mergeable?: boolean;
   type: 'array';
   subType?: 'string' | 'object' | 'number';
-  supportedManagers?: string[] | 'all';
-  supportedPlatforms?: string[] | 'all';
 }
 
 export interface RenovateStringArrayOption extends RenovateArrayOption<string> {
   format?: 'regex';
   subType: 'string';
-  supportedManagers?: string[] | 'all';
-  supportedPlatforms?: string[] | 'all';
 }
 
 export interface RenovateNumberArrayOption extends RenovateArrayOption<number> {
   subType: 'number';
-  supportedManagers?: string[] | 'all';
-  supportedPlatforms?: string[] | 'all';
 }
 
 export interface RenovateBooleanOption extends RenovateOptionBase {
   default?: boolean | null;
   type: 'boolean';
-  supportedManagers?: string[] | 'all';
-  supportedPlatforms?: string[] | 'all';
 }
 
 export interface RenovateIntegerOption extends RenovateOptionBase {
   default?: number | null;
   type: 'integer';
-  supportedManagers?: string[] | 'all';
-  supportedPlatforms?: string[] | 'all';
 }
 
 export interface RenovateStringOption extends RenovateOptionBase {
@@ -503,8 +548,6 @@ export interface RenovateStringOption extends RenovateOptionBase {
   // Not used
   replaceLineReturns?: boolean;
   type: 'string';
-  supportedManagers?: string[] | 'all';
-  supportedPlatforms?: string[] | 'all';
 }
 
 export interface RenovateObjectOption extends RenovateOptionBase {
@@ -512,8 +555,6 @@ export interface RenovateObjectOption extends RenovateOptionBase {
   additionalProperties?: Record<string, unknown> | boolean;
   mergeable?: boolean;
   type: 'object';
-  supportedManagers?: string[] | 'all';
-  supportedPlatforms?: string[] | 'all';
 }
 
 export type RenovateOptions =
@@ -546,7 +587,7 @@ export interface PackageRuleInputConfig extends Record<string, unknown> {
   manager?: string;
   datasource?: string;
   packageRules?: (PackageRule & PackageRuleInputConfig)[];
-  releaseTimestamp?: string | null;
+  releaseTimestamp?: Timestamp | null;
   repository?: string;
   currentVersionAgeInDays?: number;
   currentVersionTimestamp?: string;
@@ -581,4 +622,11 @@ export interface ManagerConfig extends RenovateConfig {
 export interface ValidationResult {
   errors: ValidationMessage[];
   warnings: ValidationMessage[];
+}
+
+export interface BumpVersionConfig {
+  bumpType?: string;
+  filePatterns: string[];
+  matchStrings: string[];
+  name?: string;
 }

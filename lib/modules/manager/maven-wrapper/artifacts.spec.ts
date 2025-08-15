@@ -1,23 +1,22 @@
 import type { Stats } from 'node:fs';
 import os from 'node:os';
-import { mockDeep } from 'jest-mock-extended';
 import type { StatusResult } from 'simple-git';
-import { join } from 'upath';
-import { envMock, mockExecAll } from '../../../../test/exec-util';
-import { env, fs, git, mockedFunction, partial } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import { resetPrefetchedImages } from '../../../util/exec/docker';
 import { getPkgReleases } from '../../datasource';
 import { updateArtifacts } from '.';
+import { envMock, mockExecAll } from '~test/exec-util';
+import { env, fs, git, partial } from '~test/util';
 
-jest.mock('../../../util/fs');
-jest.mock('../../../util/git');
-jest.mock('../../../util/exec/env');
-jest.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/fs');
+vi.mock('../../../util/exec/env');
+vi.mock('../../datasource', () => mockDeep());
 
 process.env.CONTAINERBASE = 'true';
 
-const osPlatformSpy = jest.spyOn(os, 'platform');
+const osPlatformSpy = vi.spyOn(os, 'platform');
 
 function mockMavenFileChangedInGit(fileName = 'maven-wrapper.properties') {
   git.getRepoStatus.mockResolvedValueOnce(
@@ -30,7 +29,7 @@ function mockMavenFileChangedInGit(fileName = 'maven-wrapper.properties') {
 describe('modules/manager/maven-wrapper/artifacts', () => {
   beforeEach(() => {
     osPlatformSpy.mockImplementation(() => 'linux');
-    GlobalConfig.set({ localDir: join('/tmp/github/some/repo') });
+    GlobalConfig.set({ localDir: upath.join('/tmp/github/some/repo') });
     fs.statLocalFile.mockResolvedValue(
       partial<Stats>({
         isFile: () => true,
@@ -45,7 +44,7 @@ describe('modules/manager/maven-wrapper/artifacts', () => {
       LANG: 'en_US.UTF-8',
       LC_ALL: 'en_US',
     });
-    mockedFunction(getPkgReleases).mockResolvedValueOnce({
+    vi.mocked(getPkgReleases).mockResolvedValueOnce({
       releases: [
         { version: '8.0.1' },
         { version: '11.0.1' },
@@ -272,7 +271,7 @@ describe('modules/manager/maven-wrapper/artifacts', () => {
     const execSnapshots = mockExecAll({ stdout: '', stderr: '' });
     mockMavenFileChangedInGit();
     GlobalConfig.set({
-      localDir: join('/tmp/github/some/repo'),
+      localDir: upath.join('/tmp/github/some/repo'),
       binarySource: 'install',
     });
     const updatedDeps = await updateArtifacts({

@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { LooseArray } from '../../../util/schema-utils';
+import { MaybeTimestamp } from '../../../util/timestamp';
 import type { CpanRelease } from './types';
 
 /**
  * https://fastapi.metacpan.org/v1/file/_mapping
  */
-const MetaCpanApiFileSchema = z
+const MetaCpanApiFile = z
   .object({
     module: LooseArray(
       z.object({
@@ -14,7 +15,7 @@ const MetaCpanApiFileSchema = z
       }),
     ),
     distribution: z.string(),
-    date: z.string(),
+    date: MaybeTimestamp,
     deprecated: z.boolean(),
     maturity: z.string(),
     status: z.union([
@@ -51,7 +52,7 @@ export const MetaCpanApiFileSearchResponse = z
     hits: z.object({
       hits: LooseArray(
         z.object({
-          _source: MetaCpanApiFileSchema,
+          _source: MetaCpanApiFile,
         }),
       ),
     }),

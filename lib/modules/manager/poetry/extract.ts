@@ -7,9 +7,10 @@ import {
   readLocalFile,
 } from '../../../util/fs';
 import { Result } from '../../../util/result';
+import { massage as massageToml } from '../../../util/toml';
 import { GithubReleasesDatasource } from '../../datasource/github-releases';
 import type { PackageFileContent } from '../types';
-import { Lockfile, PoetrySchemaToml } from './schema';
+import { Lockfile, PoetryPyProject } from './schema';
 
 export async function extractPackageFile(
   content: string,
@@ -17,8 +18,8 @@ export async function extractPackageFile(
 ): Promise<PackageFileContent | null> {
   logger.trace(`poetry.extractPackageFile(${packageFile})`);
   const { val: res, err } = Result.parse(
-    content,
-    PoetrySchemaToml.transform(({ packageFileContent }) => packageFileContent),
+    massageToml(content),
+    PoetryPyProject.transform(({ packageFileContent }) => packageFileContent),
   ).unwrap();
   if (err) {
     logger.debug({ packageFile, err }, `Poetry: error parsing pyproject.toml`);

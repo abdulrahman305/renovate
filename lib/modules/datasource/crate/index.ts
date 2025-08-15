@@ -4,9 +4,11 @@ import { GlobalConfig } from '../../../config/global';
 import { logger } from '../../../logger';
 import * as memCache from '../../../util/cache/memory';
 import { cache } from '../../../util/cache/package/decorator';
+import { getChildEnv } from '../../../util/exec/utils';
 import { privateCacheDir, readCacheFile } from '../../../util/fs';
 import { simpleGitConfig } from '../../../util/git/config';
 import { toSha256 } from '../../../util/hash';
+import { memCacheProvider } from '../../../util/http/cache/memory-http-cache-provider';
 import { newlineRegex, regEx } from '../../../util/regex';
 import { joinUrlParts, parseUrl } from '../../../util/url';
 import * as cargoVersioning from '../../versioning/cargo';
@@ -18,7 +20,7 @@ import type {
   Release,
   ReleaseResult,
 } from '../types';
-import { ReleaseTimestampSchema } from './schema';
+import { ReleaseTimestamp } from './schema';
 import type {
   CrateMetadata,
   CrateRecord,
@@ -58,7 +60,7 @@ export class CrateDatasource extends Datasource {
     packageName,
     registryUrl,
   }: GetReleasesConfig): Promise<ReleaseResult | null> {
-    // istanbul ignore if
+    /* v8 ignore next 6 -- should never happen */
     if (!registryUrl) {
       logger.warn(
         'crate datasource: No registryUrl specified, cannot perform getReleases',
@@ -155,8 +157,10 @@ export class CrateDatasource extends Datasource {
     );
 
     try {
-      type Response = { crate: CrateMetadata };
-      const response = await this.http.getJson<Response>(crateUrl);
+      interface Response {
+        crate: CrateMetadata;
+      }
+      const response = await this.http.getJsonUnchecked<Response>(crateUrl);
       return response.body.crate;
     } catch (err) {
       logger.warn(
@@ -191,7 +195,7 @@ export class CrateDatasource extends Datasource {
       );
       const crateUrl = joinUrlParts(baseUrl, ...packageSuffix);
       try {
-        return (await this.http.get(crateUrl)).body;
+        return (await this.http.getText(crateUrl)).body;
       } catch (err) {
         this.handleGenericErrors(err);
       }
@@ -252,7 +256,7 @@ export class CrateDatasource extends Datasource {
     packageName,
     registryUrl,
   }: GetReleasesConfig): Promise<RegistryInfo | null> {
-    // istanbul ignore if
+    /* v8 ignore next 3 -- should never happen */
     if (!registryUrl) {
       return null;
     }
@@ -315,28 +319,15 @@ export class CrateDatasource extends Datasource {
           { clonePath, registryFetchUrl },
           `Cloning private cargo registry`,
         );
-
-        const git = Git({ ...simpleGitConfig(), maxConcurrentProcesses: 1 });
-        const clonePromise = git.clone(registryFetchUrl, clonePath, {
-          '--depth': 1,
-        });
-
-        memCache.set(
-          cacheKey,
-          clonePromise.then(() => clonePath).catch(() => null),
+        const clonePromise = CrateDatasource.clone(
+          registryFetchUrl,
+          clonePath,
+          packageName,
+          cacheKeyForError,
         );
 
-        try {
-          await clonePromise;
-        } catch (err) {
-          logger.warn(
-            { err, packageName, registryFetchUrl },
-            'failed cloning git registry',
-          );
-          memCache.set(cacheKeyForError, err);
-
-          return null;
-        }
+        memCache.set(cacheKey, clonePromise);
+        await clonePromise;
       }
 
       if (!clonePath) {
@@ -353,6 +344,56 @@ export class CrateDatasource extends Datasource {
     }
 
     return registry;
+  }
+
+  private static async clone(
+    registryFetchUrl: string,
+    clonePath: string,
+    packageName: string,
+    cacheKeyForError: string,
+  ): Promise<string | null> {
+    const git = Git({
+      ...simpleGitConfig(),
+      maxConcurrentProcesses: 1,
+    }).env(getChildEnv());
+
+    try {
+      await git.clone(registryFetchUrl, clonePath, {
+        '--depth': 1,
+      });
+      return clonePath;
+    } catch (err) {
+      if (
+        err.message.includes(
+          'fatal: dumb http transport does not support shallow capabilities',
+        )
+      ) {
+        logger.info(
+          { packageName, registryFetchUrl },
+          'failed to shallow clone git registry, doing full clone',
+        );
+        try {
+          await git.clone(registryFetchUrl, clonePath);
+          return clonePath;
+        } catch (err) {
+          logger.warn(
+            { err, packageName, registryFetchUrl },
+            'failed cloning git registry',
+          );
+          memCache.set(cacheKeyForError, err);
+
+          return null;
+        }
+      } else {
+        logger.warn(
+          { err, packageName, registryFetchUrl },
+          'failed cloning git registry',
+        );
+        memCache.set(cacheKeyForError, err);
+
+        return null;
+      }
+    }
   }
 
   private static areReleasesCacheable(
@@ -400,7 +441,8 @@ export class CrateDatasource extends Datasource {
     const url = `https://crates.io/api/v1/crates/${packageName}/${release.version}`;
     const { body: releaseTimestamp } = await this.http.getJson(
       url,
-      ReleaseTimestampSchema,
+      { cacheProvider: memCacheProvider },
+      ReleaseTimestamp,
     );
     release.releaseTimestamp = releaseTimestamp;
     return release;

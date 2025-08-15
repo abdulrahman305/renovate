@@ -6,7 +6,7 @@ import type { VersioningApi } from '../types';
 export const id = 'unity3d';
 export const displayName = 'Unity3D';
 export const urls = [
-  'https://docs.unity3d.com/Manual/ScriptCompilationAssemblyDefinitionFiles.html#version-define-expressions',
+  'https://docs.unity3d.com/Manual/assembly-definition-includes.html#version-define-expressions',
 ];
 export const supportsRanges = false;
 
@@ -33,11 +33,11 @@ class Unity3dVersioningApi extends GenericVersioningApi {
     const { major, minor, patch, releaseStream, build } = matches.groups;
 
     const release = [
-      parseInt(major, 10),
-      parseInt(minor, 10),
-      parseInt(patch, 10),
+      parseInt(major),
+      parseInt(minor),
+      parseInt(patch),
       Unity3dVersioningApi.ReleaseStreamType.indexOf(releaseStream),
-      parseInt(build, 10),
+      parseInt(build),
     ];
     const isStable =
       Unity3dVersioningApi.stableVersions.includes(releaseStream);

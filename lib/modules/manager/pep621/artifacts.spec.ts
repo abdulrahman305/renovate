@@ -1,24 +1,24 @@
 import { codeBlock } from 'common-tags';
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { mockExecAll } from '../../../../test/exec-util';
-import { fs, mockedFunction } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import { getPkgReleases as _getPkgReleases } from '../../datasource';
 import type { UpdateArtifactsConfig } from '../types';
 import { updateArtifacts } from './artifacts';
+import { mockExecAll } from '~test/exec-util';
+import { fs } from '~test/util';
 
-jest.mock('../../../util/fs');
-jest.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/fs');
+vi.mock('../../datasource', () => mockDeep());
 
-const getPkgReleases = mockedFunction(_getPkgReleases);
+const getPkgReleases = vi.mocked(_getPkgReleases);
 
 const config: UpdateArtifactsConfig = {};
 const adminConfig: RepoGlobalConfig = {
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/cache'),
-  containerbaseDir: join('/tmp/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/cache'),
+  containerbaseDir: upath.join('/tmp/cache/containerbase'),
 };
 
 describe('modules/manager/pep621/artifacts', () => {

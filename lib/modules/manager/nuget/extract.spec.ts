@@ -1,11 +1,12 @@
 import { codeBlock } from 'common-tags';
 import upath from 'upath';
-import { Fixtures } from '../../../../test/fixtures';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import { DotnetVersionDatasource } from '../../datasource/dotnet-version';
 import type { ExtractConfig } from '../types';
 import { extractPackageFile } from '.';
+import { Fixtures } from '~test/fixtures';
+import { fs, logger } from '~test/util';
 
 const config: ExtractConfig = {};
 
@@ -25,8 +26,34 @@ describe('modules/manager/nuget/extract', () => {
 
     it('returns null for invalid csproj', async () => {
       expect(
-        await extractPackageFile('nothing here', 'bogus', config),
+        await extractPackageFile(
+          '\uFEFF  <?xml version="1.0" encoding="utf-8" ?>invalid xml>',
+          'bogus',
+          config,
+        ),
       ).toBeNull();
+
+      expect(logger.logger.debug).toHaveBeenCalledWith(
+        expect.anything(),
+        'Failed to parse XML',
+      );
+    });
+
+    it('returns null if not xml', async () => {
+      expect(
+        await extractPackageFile(
+          codeBlock`
+          org.apache.curator:* =4.3.0
+          org.apache.hadoop:*=3.1.4
+          org.apache.hadoop.thirdparty:* =   1.1.0
+          `,
+          'versions.props',
+          config,
+        ),
+      ).toBeNull();
+      expect(logger.logger.debug).toHaveBeenCalledWith(
+        'NuGet: Skipping versions.props as it is not XML',
+      );
     });
 
     it('extracts package version dependency', async () => {
@@ -41,8 +68,10 @@ describe('modules/manager/nuget/extract', () => {
     it('extracts package file version', async () => {
       const packageFile = 'sample.csproj';
       const sample = Fixtures.get(packageFile);
+      vi.spyOn(fs, 'localPathExists').mockResolvedValueOnce(true);
       const res = await extractPackageFile(sample, packageFile, config);
       expect(res?.packageFileVersion).toBe('0.1.0');
+      expect(res?.lockFiles).toEqual(['packages.lock.json']);
     });
 
     it('does not fail on package file without version', async () => {
@@ -57,7 +86,7 @@ describe('modules/manager/nuget/extract', () => {
       const sample = Fixtures.get(packageFile);
       const res = await extractPackageFile(sample, packageFile, config);
       expect(res?.deps).toMatchSnapshot();
-      expect(res?.deps).toHaveLength(17);
+      expect(res?.deps).toHaveLength(23);
     });
 
     it('extracts msbuild sdk from the Sdk attr of Project element', async () => {
@@ -138,6 +167,46 @@ describe('modules/manager/nuget/extract', () => {
       expect(res).toBeNull();
     });
 
+    it('extracts msbuild sdk from the Import element', async () => {
+      const packageFile = 'sample.csproj';
+      const sample = `
+      <Project>
+        <PropertyGroup>
+          <TargetFramework>net7.0</TargetFramework> <!-- this is a dummy value -->
+          <NuspecFile>$(MSBuildThisFileDirectory)\tdlib.native.nuspec</NuspecFile>
+          <NuspecProperties>version=$(PackageVersion)</NuspecProperties>
+        </PropertyGroup>
+        <Import Project="Sdk.props" Sdk="My.Custom.Sdk" Version="1.2.3" />
+      </Project>
+      `;
+      const res = await extractPackageFile(sample, packageFile, config);
+      expect(res?.deps).toEqual([
+        {
+          depName: 'My.Custom.Sdk',
+          depType: 'msbuild-sdk',
+          currentValue: '1.2.3',
+          datasource: 'nuget',
+        },
+      ]);
+      expect(res?.deps).toHaveLength(1);
+    });
+
+    it('does not extract msbuild sdk from the Import element if version is missing', async () => {
+      const packageFile = 'sample.csproj';
+      const sample = `
+      <Project>
+        <PropertyGroup>
+          <TargetFramework>net7.0</TargetFramework> <!-- this is a dummy value -->
+          <NuspecFile>$(MSBuildThisFileDirectory)\tdlib.native.nuspec</NuspecFile>
+          <NuspecProperties>version=$(PackageVersion)</NuspecProperties>
+        </PropertyGroup>
+        <Import Project="Sdk.props" Sdk="My.Custom.Sdk" />
+      </Project>
+      `;
+      const res = await extractPackageFile(sample, packageFile, config);
+      expect(res).toBeNull();
+    });
+
     it('extracts dependency with lower-case Version attribute', async () => {
       const contents = codeBlock`
         <Project Sdk="Microsoft.NET.Sdk">
@@ -157,7 +226,7 @@ describe('modules/manager/nuget/extract', () => {
       const sample = Fixtures.get(packageFile);
       const res = await extractPackageFile(sample, packageFile, config);
       expect(res?.deps).toMatchSnapshot();
-      expect(res?.deps).toHaveLength(17);
+      expect(res?.deps).toHaveLength(22);
     });
 
     it('extracts ContainerBaseImage', async () => {
@@ -175,6 +244,7 @@ describe('modules/manager/nuget/extract', () => {
             autoReplaceStringTemplate:
               '{{depName}}{{#if newValue}}:{{newValue}}{{/if}}{{#if newDigest}}@{{newDigest}}{{/if}}',
             depName: 'mcr.microsoft.com/dotnet/runtime',
+            packageName: 'mcr.microsoft.com/dotnet/runtime',
             depType: 'docker',
             datasource: 'docker',
             currentValue: '7.0.10',
@@ -200,6 +270,7 @@ describe('modules/manager/nuget/extract', () => {
             autoReplaceStringTemplate:
               '{{depName}}{{#if newValue}}:{{newValue}}{{/if}}{{#if newDigest}}@{{newDigest}}{{/if}}',
             depName: 'mcr.microsoft.com/dotnet/runtime',
+            packageName: 'mcr.microsoft.com/dotnet/runtime',
             depType: 'docker',
             datasource: 'docker',
             currentValue: '7.0.10',

@@ -1,21 +1,20 @@
-import { join } from 'upath';
-import { envMock, mockExecAll } from '../../../../test/exec-util';
-import { env, fs, git, partial } from '../../../../test/util';
+import upath from 'upath';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import type { StatusResult } from '../../../util/git/types';
 import type { UpdateArtifactsConfig } from '../types';
 import { updateArtifacts } from '.';
+import { envMock, mockExecAll } from '~test/exec-util';
+import { env, fs, git, partial } from '~test/util';
 
-jest.mock('../../../util/exec/env');
-jest.mock('../../../util/fs');
-jest.mock('../../../util/git');
+vi.mock('../../../util/exec/env');
+vi.mock('../../../util/fs');
 
 const adminConfig: RepoGlobalConfig = {
   // `join` fixes Windows CI
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/renovate/cache'),
-  containerbaseDir: join('/tmp/renovate/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/renovate/cache'),
+  containerbaseDir: upath.join('/tmp/renovate/cache/containerbase'),
 };
 const config: UpdateArtifactsConfig = {};
 

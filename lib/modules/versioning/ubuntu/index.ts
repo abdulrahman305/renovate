@@ -4,6 +4,7 @@ import { DistroInfo } from '../distro';
 import type { NewValueConfig, VersioningApi } from '../types';
 import {
   getDatedContainerImageCodename,
+  getDatedContainerImageSuffix,
   getDatedContainerImageVersion,
   isDatedCodeName,
 } from './common';
@@ -65,7 +66,7 @@ function isStable(version: string): boolean {
 
 function getVersionByCodename(version: string): string {
   const datedImgVersion = getDatedContainerImageCodename(version);
-  const getVersion = datedImgVersion ? datedImgVersion : version;
+  const getVersion = datedImgVersion ?? version;
   return di.getVersionByCodename(getVersion);
 }
 
@@ -73,7 +74,7 @@ function getMajor(version: string): null | number {
   const ver = getVersionByCodename(version);
   if (isValid(ver)) {
     const [major] = ver.split('.');
-    return parseInt(major, 10);
+    return parseInt(major);
   }
   return null;
 }
@@ -82,7 +83,7 @@ function getMinor(version: string): null | number {
   const ver = getVersionByCodename(version);
   if (isValid(ver)) {
     const [, minor] = ver.split('.');
-    return parseInt(minor, 10);
+    return parseInt(minor);
   }
   return null;
 }
@@ -91,7 +92,7 @@ function getPatch(version: string): null | number {
   const ver = getVersionByCodename(version);
   if (isValid(ver)) {
     const [, , patch] = ver.split('.');
-    return patch ? parseInt(patch, 10) : null;
+    return patch ? parseInt(patch) : null;
   }
   return null;
 }
@@ -102,6 +103,12 @@ function equals(version: string, other: string): boolean {
   const verImage = getDatedContainerImageVersion(version);
   const otherImageVer = getDatedContainerImageVersion(other);
   if (verImage !== otherImageVer) {
+    return false;
+  }
+
+  const verSuffix = getDatedContainerImageSuffix(version);
+  const otherSuffix = getDatedContainerImageSuffix(other);
+  if (verSuffix !== otherSuffix) {
     return false;
   }
 
@@ -135,6 +142,15 @@ function isGreaterThan(version: string, other: string): boolean {
     return true;
   }
   if (xImageVersion < yImageVersion) {
+    return false;
+  }
+
+  const xSuffixVersion = getDatedContainerImageSuffix(version) ?? 0;
+  const ySuffixVersion = getDatedContainerImageSuffix(other) ?? 0;
+  if (xSuffixVersion > ySuffixVersion) {
+    return true;
+  }
+  if (xSuffixVersion < ySuffixVersion) {
     return false;
   }
 

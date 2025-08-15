@@ -5,6 +5,7 @@ export const removedPresets: Record<string, string | null> = {
   ':automergeBranchPush': ':automergeBranch',
   ':base': 'config:recommended',
   ':app': 'config:js-app',
+  ':disableLockFiles': ':skipArtifactsUpdate',
   ':enableGradleLite': null,
   ':js-app': 'config:js-app',
   ':library': 'config:js-lib',
@@ -31,6 +32,8 @@ export const removedPresets: Record<string, string | null> = {
   'github>whitesource/merge-confidence:beta': 'mergeConfidence:all-badges',
   'replacements:messageFormat-{{package}}-to-@messageformat/{{package}}':
     'replacements:messageFormat-to-scoped',
+  'regexManagers:azurePipelinesVersions':
+    'customManagers:azurePipelinesVersions',
   'regexManagers:biomeVersions': 'customManagers:biomeVersions',
   'regexManagers:bitbucketPipelinesVersions':
     'customManagers:bitbucketPipelinesVersions',
@@ -61,6 +64,7 @@ const renamedMonorepos: Record<string, string> = {
   hamcrest: 'javahamcrest',
   HotChocolate: 'hotchocolate',
   infrastructure: 'infrastructure-ui',
+  junit5: 'junit-framework',
   lingui: 'linguijs',
   MassTransit: 'masstransit',
   material: 'material-components-web',
@@ -74,6 +78,7 @@ const renamedMonorepos: Record<string, string> = {
   Steeltoe: 'steeltoe',
   stryker: 'stryker-js',
   Swashbuckle: 'swashbuckle-aspnetcore',
+  nrwl: 'nx',
 };
 
 for (const [from, to] of Object.entries(renamedMonorepos)) {

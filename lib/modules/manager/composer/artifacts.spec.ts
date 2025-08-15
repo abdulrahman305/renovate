@@ -1,7 +1,5 @@
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { envMock, mockExecAll } from '../../../../test/exec-util';
-import { env, fs, git, mocked, partial } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import * as docker from '../../../util/exec/docker';
@@ -12,15 +10,16 @@ import { GitTagsDatasource } from '../../datasource/git-tags';
 import { PackagistDatasource } from '../../datasource/packagist';
 import type { UpdateArtifactsConfig } from '../types';
 import * as composer from '.';
+import { envMock, mockExecAll } from '~test/exec-util';
+import { env, fs, git, partial } from '~test/util';
 
-jest.mock('../../../util/exec/env');
-jest.mock('../../datasource', () => mockDeep());
-jest.mock('../../../util/fs');
-jest.mock('../../../util/git');
+vi.mock('../../../util/exec/env');
+vi.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/fs');
 
 process.env.CONTAINERBASE = 'true';
 
-const datasource = mocked(_datasource);
+const datasource = vi.mocked(_datasource);
 
 const config: UpdateArtifactsConfig = {
   composerIgnorePlatformReqs: [],
@@ -31,9 +30,9 @@ const adminConfig: RepoGlobalConfig = {
   allowPlugins: false,
   allowScripts: false,
   // `join` fixes Windows CI
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/renovate/cache'),
-  containerbaseDir: join('/tmp/renovate/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/renovate/cache'),
+  containerbaseDir: upath.join('/tmp/renovate/cache/containerbase'),
   dockerSidecarImage: 'ghcr.io/containerbase/sidecar',
 };
 
@@ -651,9 +650,9 @@ describe('modules/manager/composer/artifacts', () => {
   });
 
   it('supports vendor directory update', async () => {
-    const foo = join('vendor/foo/Foo.php');
-    const bar = join('vendor/bar/Bar.php');
-    const baz = join('vendor/baz/Baz.php');
+    const foo = upath.join('vendor/foo/Foo.php');
+    const bar = upath.join('vendor/bar/Bar.php');
+    const baz = upath.join('vendor/baz/Baz.php');
     fs.localPathExists.mockResolvedValueOnce(true);
     fs.readLocalFile.mockResolvedValueOnce('{}');
     const execSnapshots = mockExecAll();
@@ -1206,6 +1205,31 @@ describe('modules/manager/composer/artifacts', () => {
     expect(execSnapshots).toMatchObject([
       {
         cmd: 'composer update foo:1.1.0 --with-dependencies --ignore-platform-reqs --no-ansi --no-interaction --no-scripts --no-autoloader --no-plugins',
+        options: { cwd: '/tmp/github/some/repo' },
+      },
+    ]);
+  });
+
+  it('uses --with-all-dependencies instead of --with-dependencies when composerUpdateAllDependencies is set in postUpdateOptions', async () => {
+    fs.readLocalFile.mockResolvedValueOnce('{}');
+    const execSnapshots = mockExecAll();
+    fs.readLocalFile.mockResolvedValueOnce('{}');
+    git.getRepoStatus.mockResolvedValueOnce(repoStatus);
+
+    expect(
+      await composer.updateArtifacts({
+        packageFileName: 'composer.json',
+        updatedDeps: [{ depName: 'foo', newVersion: '1.1.0' }],
+        newPackageFileContent: '{}',
+        config: {
+          ...config,
+          postUpdateOptions: ['composerWithAll'],
+        },
+      }),
+    ).toBeNull();
+    expect(execSnapshots).toMatchObject([
+      {
+        cmd: 'composer update foo:1.1.0 --with-all-dependencies --ignore-platform-reqs --no-ansi --no-interaction --no-scripts --no-autoloader --no-plugins',
         options: { cwd: '/tmp/github/some/repo' },
       },
     ]);

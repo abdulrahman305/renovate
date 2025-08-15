@@ -2,8 +2,8 @@ import { logger } from '../../../logger';
 import { HttpCacheStats } from '../../stats';
 import type { GotOptions, HttpResponse } from '../types';
 import { copyResponse } from '../util';
-import { HttpCacheSchema } from './schema';
-import type { HttpCache, HttpCacheProvider } from './types';
+import { HttpCache } from './schema';
+import type { HttpCacheProvider } from './types';
 
 export abstract class AbstractHttpCacheProvider implements HttpCacheProvider {
   protected abstract load(url: string): Promise<unknown>;
@@ -11,12 +11,12 @@ export abstract class AbstractHttpCacheProvider implements HttpCacheProvider {
 
   async get(url: string): Promise<HttpCache | null> {
     const cache = await this.load(url);
-    const httpCache = HttpCacheSchema.parse(cache);
+    const httpCache = HttpCache.parse(cache);
     if (!httpCache) {
       return null;
     }
 
-    return httpCache as HttpCache;
+    return httpCache;
   }
 
   async setCacheHeaders<T extends Pick<GotOptions, 'headers'>>(
@@ -39,12 +39,19 @@ export abstract class AbstractHttpCacheProvider implements HttpCacheProvider {
     }
   }
 
-  async wrapResponse<T>(
+  bypassServer<T>(
+    _url: string,
+    _ignoreSoftTtl: boolean,
+  ): Promise<HttpResponse<T> | null> {
+    return Promise.resolve(null);
+  }
+
+  async wrapServerResponse<T>(
     url: string,
     resp: HttpResponse<T>,
   ): Promise<HttpResponse<T>> {
     if (resp.statusCode === 200) {
-      const etag = resp.headers?.['etag'];
+      const etag = resp.headers?.etag;
       const lastModified = resp.headers?.['last-modified'];
 
       HttpCacheStats.incRemoteMisses(url);
@@ -52,21 +59,23 @@ export abstract class AbstractHttpCacheProvider implements HttpCacheProvider {
       const httpResponse = copyResponse(resp, true);
       const timestamp = new Date().toISOString();
 
-      const newHttpCache = HttpCacheSchema.parse({
+      const newHttpCache = HttpCache.parse({
         etag,
         lastModified,
         httpResponse,
         timestamp,
       });
-      if (newHttpCache) {
-        logger.debug(
-          `http cache: saving ${url} (etag=${etag}, lastModified=${lastModified})`,
-        );
-        await this.persist(url, newHttpCache as HttpCache);
-      } else {
-        logger.debug(`http cache: failed to persist cache for ${url}`);
-      }
 
+      /* v8 ignore start: should never happen */
+      if (!newHttpCache) {
+        logger.debug(`http cache: failed to persist cache for ${url}`);
+        return resp;
+      } /* v8 ignore stop */
+
+      logger.debug(
+        `http cache: saving ${url} (etag=${etag}, lastModified=${lastModified})`,
+      );
+      await this.persist(url, newHttpCache as HttpCache);
       return resp;
     }
 
@@ -80,6 +89,9 @@ export abstract class AbstractHttpCacheProvider implements HttpCacheProvider {
       logger.debug(
         `http cache: Using cached response: ${url} from ${timestamp}`,
       );
+      httpCache.timestamp = new Date().toISOString();
+      await this.persist(url, httpCache);
+
       HttpCacheStats.incRemoteHits(url);
       const cachedResp = copyResponse(
         httpCache.httpResponse as HttpResponse<T>,

@@ -6,8 +6,8 @@ export interface DistroSchedule {
   codename: string;
   series: string;
   created: string;
-  release: string;
-  eol: string;
+  release?: string;
+  eol?: string;
   eol_server?: string;
   eol_esm?: string;
   eol_lts?: string;
@@ -128,9 +128,7 @@ export class DistroInfo {
 
     // ubuntu: does not have eol_lts
     // debian: only "Stable" has no eol_lts, old and oldold has both
-    if (!end) {
-      end = endLts;
-    }
+    end ??= endLts;
 
     if (end) {
       const now = DateTime.now().toUTC();
@@ -138,7 +136,6 @@ export class DistroInfo {
       return eol < now;
     }
 
-    // istanbul ignore next
     return true;
   }
 
@@ -151,7 +148,7 @@ export class DistroInfo {
     const ver = this.getVersionByCodename(input);
     const schedule = this.getSchedule(ver);
 
-    if (!schedule) {
+    if (!schedule?.release) {
       return false;
     }
 
@@ -159,6 +156,25 @@ export class DistroInfo {
     const release = DateTime.fromISO(schedule.release, { zone: 'utc' });
 
     return release < now;
+  }
+
+  /**
+   * Check if a given version has been created
+   * @param input A codename/semVer
+   * @returns false if unreleased or has no schedule, true otherwise
+   */
+  public isCreated(input: string): boolean {
+    const ver = this.getVersionByCodename(input);
+    const schedule = this.getSchedule(ver);
+
+    if (!schedule) {
+      return false;
+    }
+
+    const now = DateTime.now().minus({ day: delay }).toUTC();
+    const created = DateTime.fromISO(schedule.created, { zone: 'utc' });
+
+    return created < now;
   }
 
   /**

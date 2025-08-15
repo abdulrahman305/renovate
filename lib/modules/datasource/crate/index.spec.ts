@@ -4,19 +4,21 @@ import type { SimpleGit } from 'simple-git';
 import _simpleGit from 'simple-git';
 import type { DirectoryResult } from 'tmp-promise';
 import { dir } from 'tmp-promise';
-import { dirname, join } from 'upath';
+import upath from 'upath';
+import type { MockedFunction } from 'vitest';
 import { getPkgReleases } from '..';
-import { Fixtures } from '../../../../test/fixtures';
-import * as httpMock from '../../../../test/http-mock';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import { EXTERNAL_HOST_ERROR } from '../../../constants/error-messages';
 import * as memCache from '../../../util/cache/memory';
 import type { RegistryInfo } from './types';
 import { CrateDatasource } from '.';
+import { Fixtures } from '~test/fixtures';
+import * as httpMock from '~test/http-mock';
+import { partial } from '~test/util';
 
-jest.mock('simple-git');
-const simpleGit: jest.Mock<Partial<SimpleGit>> = _simpleGit as never;
+vi.mock('simple-git');
+const simpleGit = vi.mocked(_simpleGit);
 
 const API_BASE_URL = CrateDatasource.CRATES_IO_API_BASE_URL;
 
@@ -25,8 +27,10 @@ const baseUrl =
 
 const datasource = CrateDatasource.id;
 
-function setupGitMocks(delayMs?: number): { mockClone: jest.Mock<any, any> } {
-  const mockClone = jest
+function setupGitMocks(delayMs?: number): {
+  mockClone: MockedFunction<SimpleGit['clone']>;
+} {
+  const mockClone = vi
     .fn()
     .mockName('clone')
     .mockImplementation(
@@ -36,29 +40,32 @@ function setupGitMocks(delayMs?: number): { mockClone: jest.Mock<any, any> } {
         }
 
         const path = `${clonePath}/my/pk/mypkg`;
-        fs.mkdirSync(dirname(path), { recursive: true });
+        fs.mkdirSync(upath.dirname(path), { recursive: true });
         fs.writeFileSync(path, Fixtures.get('mypkg'), { encoding: 'utf8' });
       },
     );
 
-  simpleGit.mockReturnValue({
-    clone: mockClone,
-  });
-
+  const gitMock = partial<SimpleGit>({ clone: mockClone });
+  gitMock.env = () => gitMock;
+  simpleGit.mockReturnValue(gitMock);
   return { mockClone };
 }
 
-function setupErrorGitMock(): { mockClone: jest.Mock<any, any> } {
-  const mockClone = jest
+function setupErrorGitMock(): {
+  mockClone: MockedFunction<SimpleGit['clone']>;
+} {
+  const mockClone = vi
     .fn()
     .mockName('clone')
     .mockImplementation((_registryUrl: string, _clonePath: string, _opts) =>
       Promise.reject(new Error('mocked error')),
     );
 
-  simpleGit.mockReturnValue({
+  const gitMock = partial<SimpleGit>({
     clone: mockClone,
   });
+  gitMock.env = () => gitMock;
+  simpleGit.mockReturnValue(gitMock);
 
   return { mockClone };
 }
@@ -107,8 +114,8 @@ describe('modules/datasource/crate/index', () => {
       tmpDir = await dir({ unsafeCleanup: true });
 
       adminConfig = {
-        localDir: join(tmpDir.path, 'local'),
-        cacheDir: join(tmpDir.path, 'cache'),
+        localDir: upath.join(tmpDir.path, 'local'),
+        cacheDir: upath.join(tmpDir.path, 'cache'),
       };
       GlobalConfig.set(adminConfig);
 
@@ -373,6 +380,85 @@ describe('modules/datasource/crate/index', () => {
       expect(mockClone).toHaveBeenCalledTimes(0);
       expect(res).toBeNull();
     });
+
+    it('retries if shallow fails because of dumb http git repo', async () => {
+      const mockClone = vi
+        .fn()
+        .mockName('clone')
+        .mockImplementation((_registryUrl: string, clonePath: string, opts) => {
+          if (typeof opts !== 'undefined' && Object.hasOwn(opts, '--depth')) {
+            return Promise.reject(
+              new Error(
+                'fatal: dumb http transport does not support shallow capabilities',
+              ),
+            );
+          } else {
+            const path = `${clonePath}/my/pk/mypkg`;
+            fs.mkdirSync(upath.dirname(path), { recursive: true });
+            fs.writeFileSync(path, Fixtures.get('mypkg'), { encoding: 'utf8' });
+          }
+        });
+
+      const gitMock = partial<SimpleGit>({
+        clone: mockClone,
+      });
+      gitMock.env = () => gitMock;
+      simpleGit.mockReturnValue(gitMock);
+      GlobalConfig.set({ ...adminConfig, allowCustomCrateRegistries: true });
+      const url = 'https://github.com/mcorbin/testregistry';
+      const res = await getPkgReleases({
+        datasource,
+        packageName: 'mypkg',
+        registryUrls: [url],
+      });
+      expect(mockClone).toHaveBeenCalledTimes(2);
+      expect(res).not.toBeNull();
+      expect(res).toBeDefined();
+      expect(res).toMatchObject({
+        dependencyUrl: 'https://github.com/mcorbin/testregistry/mypkg',
+        registryUrl: 'https://github.com/mcorbin/testregistry',
+        releases: [
+          {
+            version: '0.1.0',
+          },
+          {
+            version: '0.1.1',
+          },
+        ],
+      });
+    });
+
+    it('retries if shallow fails but retry can also fail', async () => {
+      const mockClone = vi
+        .fn()
+        .mockName('clone')
+        .mockImplementation((_registryUrl: string, clonePath: string, opts) => {
+          if (typeof opts !== 'undefined' && Object.hasOwn(opts, '--depth')) {
+            return Promise.reject(
+              new Error(
+                'fatal: dumb http transport does not support shallow capabilities',
+              ),
+            );
+          } else {
+            return Promise.reject(new Error('mocked error'));
+          }
+        });
+
+      const gitMock = partial<SimpleGit>({
+        clone: mockClone,
+      });
+      gitMock.env = () => gitMock;
+      simpleGit.mockReturnValue(gitMock);
+      GlobalConfig.set({ ...adminConfig, allowCustomCrateRegistries: true });
+      const url = 'https://github.com/mcorbin/testregistry';
+      const res = await getPkgReleases({
+        datasource,
+        packageName: 'mypkg',
+        registryUrls: [url],
+      });
+      expect(mockClone).toHaveBeenCalledTimes(2);
+      expect(res).toBeNull();
+    });
   });
 
   describe('fetchCrateRecordsPayload', () => {
@@ -427,7 +513,7 @@ describe('modules/datasource/crate/index', () => {
 
       expect(res).toEqual({
         version: '4.5.17',
-        releaseTimestamp: '2024-09-04T19:16:41.355243+00:00',
+        releaseTimestamp: '2024-09-04T19:16:41.355Z',
       });
     });
   });

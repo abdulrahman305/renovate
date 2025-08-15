@@ -5,13 +5,13 @@ import { logger } from '../../../../logger';
 import type { HostRule } from '../../../../types';
 import { exec } from '../../../../util/exec';
 import type { ExecOptions, ToolConstraint } from '../../../../util/exec/types';
-import { getSiblingFileName, readLocalFile } from '../../../../util/fs';
+import { findLocalSiblingOrParent, readLocalFile } from '../../../../util/fs';
 import { getGitEnvironmentVariables } from '../../../../util/git/auth';
 import { find } from '../../../../util/host-rules';
 import { Result } from '../../../../util/result';
 import { parseUrl } from '../../../../util/url';
 import { PypiDatasource } from '../../../datasource/pypi';
-import { getGoogleAuthTokenRaw } from '../../../datasource/util';
+import { getGoogleAuthHostRule } from '../../../datasource/util';
 import type {
   PackageDependency,
   UpdateArtifact,
@@ -19,8 +19,8 @@ import type {
   Upgrade,
 } from '../../types';
 import { applyGitSource } from '../../util';
-import { type PyProject, UvLockfileSchema } from '../schema';
-import { depTypes, parseDependencyList } from '../utils';
+import { type PyProject, UvLockfile } from '../schema';
+import { depTypes } from '../utils';
 import type { PyProjectProcessor } from './types';
 
 const uvUpdateCMD = 'uv lock';
@@ -28,7 +28,7 @@ const uvUpdateCMD = 'uv lock';
 export class UvProcessor implements PyProjectProcessor {
   process(project: PyProject, deps: PackageDependency[]): PackageDependency[] {
     const uv = project.tool?.uv;
-    if (is.nullOrUndefined(uv)) {
+    if (!uv) {
       return deps;
     }
 
@@ -42,12 +42,10 @@ export class UvProcessor implements PyProjectProcessor {
       ?.filter((index) => !index.explicit && index.name !== defaultIndex?.name)
       ?.map(({ url }) => url);
 
-    deps.push(
-      ...parseDependencyList(
-        depTypes.uvDevDependencies,
-        uv['dev-dependencies'],
-      ),
-    );
+    const devDependencies = uv['dev-dependencies'];
+    if (devDependencies) {
+      deps.push(...devDependencies);
+    }
 
     // https://docs.astral.sh/uv/concepts/dependencies/#dependency-sources
     // Skip sources that do not make sense to handle (e.g. path).
@@ -55,6 +53,10 @@ export class UvProcessor implements PyProjectProcessor {
       for (const dep of deps) {
         // istanbul ignore if
         if (!dep.packageName) {
+          continue;
+        }
+
+        if (dep.depType === 'requires-python') {
           continue;
         }
 
@@ -118,21 +120,25 @@ export class UvProcessor implements PyProjectProcessor {
     deps: PackageDependency[],
     packageFile: string,
   ): Promise<PackageDependency[]> {
-    const lockFileName = getSiblingFileName(packageFile, 'uv.lock');
-    const lockFileContent = await readLocalFile(lockFileName, 'utf8');
-    if (lockFileContent) {
-      const { val: lockFileMapping, err } = Result.parse(
-        lockFileContent,
-        UvLockfileSchema,
-      ).unwrap();
+    const lockFileName = await findLocalSiblingOrParent(packageFile, 'uv.lock');
+    if (lockFileName === null) {
+      logger.debug({ packageFile }, `No uv lock file found`);
+    } else {
+      const lockFileContent = await readLocalFile(lockFileName, 'utf8');
+      if (lockFileContent) {
+        const { val: lockFileMapping, err } = Result.parse(
+          lockFileContent,
+          UvLockfile,
+        ).unwrap();
 
-      if (err) {
-        logger.debug({ packageFile, err }, `Error parsing uv lock file`);
-      } else {
-        for (const dep of deps) {
-          const packageName = dep.packageName;
-          if (packageName && packageName in lockFileMapping) {
-            dep.lockedVersion = lockFileMapping[packageName];
+        if (err) {
+          logger.debug({ packageFile, err }, `Error parsing uv lock file`);
+        } else {
+          for (const dep of deps) {
+            const packageName = dep.packageName;
+            if (packageName && packageName in lockFileMapping) {
+              dep.lockedVersion = lockFileMapping[packageName];
+            }
           }
         }
       }
@@ -147,13 +153,20 @@ export class UvProcessor implements PyProjectProcessor {
   ): Promise<UpdateArtifactsResult[] | null> {
     const { config, updatedDeps, packageFileName } = updateArtifact;
 
-    const isLockFileMaintenance = config.updateType === 'lockFileMaintenance';
+    const { isLockFileMaintenance } = config;
 
     // abort if no lockfile is defined
-    const lockFileName = getSiblingFileName(packageFileName, 'uv.lock');
+    const lockFileName = await findLocalSiblingOrParent(
+      packageFileName,
+      'uv.lock',
+    );
+    if (lockFileName === null) {
+      logger.debug({ packageFileName }, `No uv lock file found`);
+      return null;
+    }
     try {
       const existingLockFileContent = await readLocalFile(lockFileName, 'utf8');
-      if (is.nullOrUndefined(existingLockFileContent)) {
+      if (!existingLockFileContent) {
         logger.debug('No uv.lock found');
         return null;
       }
@@ -165,7 +178,8 @@ export class UvProcessor implements PyProjectProcessor {
       };
       const uvConstraint: ToolConstraint = {
         toolName: 'uv',
-        constraint: config.constraints?.uv,
+        constraint:
+          config.constraints?.uv ?? project.tool?.uv?.['required-version'],
       };
 
       const extraEnv = {
@@ -177,7 +191,6 @@ export class UvProcessor implements PyProjectProcessor {
         cwdFile: packageFileName,
         extraEnv,
         docker: {},
-        userConfiguredEnv: config.env,
         toolConstraints: [pythonConstraint, uvConstraint],
       };
 
@@ -232,7 +245,7 @@ function generateCMD(updatedDeps: Upgrade[]): string {
   for (const dep of updatedDeps) {
     switch (dep.depType) {
       case depTypes.optionalDependencies: {
-        deps.push(dep.depName!.split('/')[1]);
+        deps.push(dep.depName!);
         break;
       }
       case depTypes.uvDevDependencies:
@@ -265,12 +278,9 @@ async function getUsernamePassword(
   }
 
   if (url.hostname.endsWith('.pkg.dev')) {
-    const accessToken = await getGoogleAuthTokenRaw();
-    if (accessToken) {
-      return {
-        username: 'oauth2accesstoken',
-        password: accessToken,
-      };
+    const hostRule = await getGoogleAuthHostRule();
+    if (hostRule) {
+      return hostRule;
     } else {
       logger.once.debug({ url }, 'Could not get Google access token');
     }
@@ -288,7 +298,8 @@ async function getUvExtraIndexUrl(
     .filter((dep) => {
       // Remove dependencies that are pinned to a specific index
       const sources = project.tool?.uv?.sources;
-      return !sources || !(dep.packageName! in sources);
+      const packageName = dep.packageName!;
+      return !sources || !(packageName in sources);
     })
     .flatMap((dep) => dep.registryUrls)
     .filter(is.string)
@@ -334,7 +345,7 @@ async function getUvIndexCredentials(
 ): Promise<NodeJS.ProcessEnv> {
   const uv_indexes = project.tool?.uv?.index;
 
-  if (is.nullOrUndefined(uv_indexes)) {
+  if (!uv_indexes) {
     return {};
   }
 
@@ -344,6 +355,11 @@ async function getUvIndexCredentials(
     const parsedUrl = parseUrl(url);
     // istanbul ignore if
     if (!parsedUrl) {
+      continue;
+    }
+
+    // If no name is provided for the index, authentication information must be passed through alternative methods
+    if (!name) {
       continue;
     }
 

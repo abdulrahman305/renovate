@@ -1,18 +1,23 @@
 import { resolveConfigPresets } from '../';
 import { CONFIG_VALIDATION } from '../../../constants/error-messages';
+import { regEx } from '../../../util/regex';
 import { massageConfig } from '../../massage';
 import { validateConfig } from '../../validation';
 import * as npm from '../npm';
 import * as internal from '.';
 
-jest.mock('../npm');
-jest.mock('../../../modules/datasource/npm');
+vi.mock('../npm');
+vi.mock('../../../modules/datasource/npm');
 
-jest.spyOn(npm, 'getPreset').mockResolvedValue(undefined);
+const getPresetSpy = vi.spyOn(npm, 'getPreset');
 
 const ignoredPresets = ['default:group', 'default:timezone'];
 
 describe('config/presets/internal/index', () => {
+  beforeEach(() => {
+    getPresetSpy.mockResolvedValue(undefined);
+  });
+
   it('fails for undefined internal preset', async () => {
     const preset = 'foo:bar';
     const presetConfig = { extends: [preset] };
@@ -53,6 +58,10 @@ describe('config/presets/internal/index', () => {
         ),
       )
       .flat()
-      .forEach((preset) => expect(preset).not.toMatch(/{{.*}}/));
+      .forEach((preset) => expect(preset).not.toMatch(regEx(/{{.*}}/)));
+  });
+
+  it('returns undefined for unknown preset', () => {
+    expect(internal.getPreset({ repo: 'some/repo' })).toBeUndefined();
   });
 });

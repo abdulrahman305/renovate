@@ -1,10 +1,10 @@
 // TODO: types (#22198)
-import is from '@sindresorhus/is';
 import { logger } from '../../../logger';
 import { ExternalHostError } from '../../../types/errors/external-host-error';
 import { cache } from '../../../util/cache/package/decorator';
 import * as p from '../../../util/promises';
 import { regEx } from '../../../util/regex';
+import { asTimestamp } from '../../../util/timestamp';
 import { joinUrlParts } from '../../../util/url';
 import * as hashicorpVersioning from '../../versioning/hashicorp';
 import { TerraformDatasource } from '../terraform-module/base';
@@ -61,7 +61,7 @@ export class TerraformProviderDatasource extends TerraformDatasource {
     packageName,
     registryUrl,
   }: GetReleasesConfig): Promise<ReleaseResult | null> {
-    // istanbul ignore if
+    /* v8 ignore next 3 -- should never happen */
     if (!registryUrl) {
       return null;
     }
@@ -113,7 +113,9 @@ export class TerraformProviderDatasource extends TerraformDatasource {
       serviceDiscovery,
       repository,
     );
-    const res = (await this.http.getJson<TerraformProvider>(backendURL)).body;
+    const res = (
+      await this.http.getJsonUnchecked<TerraformProvider>(backendURL)
+    ).body;
     const dep: ReleaseResult = {
       releases: res.versions.map((version) => ({
         version,
@@ -126,9 +128,8 @@ export class TerraformProviderDatasource extends TerraformDatasource {
     const latestVersion = dep.releases.find(
       (release) => res.version === release.version,
     );
-    // istanbul ignore else
     if (latestVersion) {
-      latestVersion.releaseTimestamp = res.published_at;
+      latestVersion.releaseTimestamp = asTimestamp(res.published_at);
     }
     dep.homepage = `${registryUrl}/providers/${repository}`;
     return dep;
@@ -149,8 +150,9 @@ export class TerraformProviderDatasource extends TerraformDatasource {
       serviceDiscovery,
       `${repository}/versions`,
     );
-    const res = (await this.http.getJson<TerraformProviderVersions>(backendURL))
-      .body;
+    const res = (
+      await this.http.getJsonUnchecked<TerraformProviderVersions>(backendURL)
+    ).body;
     const dep: ReleaseResult = {
       releases: res.versions.map(({ version }) => ({
         version,
@@ -171,7 +173,9 @@ export class TerraformProviderDatasource extends TerraformDatasource {
       `index.json`,
     );
     const res = (
-      await this.http.getJson<TerraformProviderReleaseBackend>(backendURL)
+      await this.http.getJsonUnchecked<TerraformProviderReleaseBackend>(
+        backendURL,
+      )
     ).body;
 
     const dep: ReleaseResult = {
@@ -213,7 +217,6 @@ export class TerraformProviderDatasource extends TerraformDatasource {
           version,
         );
       } catch (err) {
-        /* istanbul ignore next */
         if (err instanceof ExternalHostError) {
           throw err;
         }
@@ -221,7 +224,8 @@ export class TerraformProviderDatasource extends TerraformDatasource {
           { err, backendLookUpName, version },
           `Failed to retrieve builds for ${backendLookUpName} ${version}`,
         );
-        return null;
+        // throw an error to disable caching
+        throw new ExternalHostError(err);
       }
       return versionReleaseBackend.builds;
     }
@@ -230,8 +234,10 @@ export class TerraformProviderDatasource extends TerraformDatasource {
     const serviceDiscovery =
       await this.getTerraformServiceDiscoveryResult(registryURL);
     if (!serviceDiscovery) {
-      logger.trace(`Failed to retrieve service discovery from ${registryURL}`);
-      return null;
+      // throw an error to disable caching
+      throw new ExternalHostError(
+        new Error(`Service discovery not found for ${registryURL}`),
+      );
     }
     const backendURL = createSDBackendURL(
       registryURL,
@@ -240,22 +246,27 @@ export class TerraformProviderDatasource extends TerraformDatasource {
       repository,
     );
     const versionsResponse = (
-      await this.http.getJson<TerraformRegistryVersions>(
+      await this.http.getJsonUnchecked<TerraformRegistryVersions>(
         `${backendURL}/versions`,
       )
     ).body;
     if (!versionsResponse.versions) {
-      logger.trace(`Failed to retrieve version list for ${backendURL}`);
-      return null;
+      // throw an error to disable caching
+      throw new ExternalHostError(
+        new Error(`Failed to retrieve version list for ${backendURL}`),
+      );
     }
     const builds = versionsResponse.versions.find(
       (value) => value.version === version,
     );
     if (!builds) {
-      logger.trace(
-        `No builds found for ${repository}:${version} on ${registryURL}`,
+      // should never happen, but just in case
+      // throw an error to disable caching
+      throw new ExternalHostError(
+        new Error(
+          `No builds found for ${repository}:${version} on ${registryURL}`,
+        ),
       );
-      return null;
     }
     const result = await p.map(
       builds.platforms,
@@ -263,7 +274,9 @@ export class TerraformProviderDatasource extends TerraformDatasource {
         const buildURL = `${backendURL}/${version}/download/${platform.os}/${platform.arch}`;
         try {
           const res = (
-            await this.http.getJson<TerraformRegistryBuildResponse>(buildURL)
+            await this.http.getJsonUnchecked<TerraformRegistryBuildResponse>(
+              buildURL,
+            )
           ).body;
           const newBuild: TerraformBuild = {
             name: repository,
@@ -273,19 +286,19 @@ export class TerraformProviderDatasource extends TerraformDatasource {
           };
           return newBuild;
         } catch (err) {
-          /* istanbul ignore next */
+          /* v8 ignore next 3 -- hard to test */
           if (err instanceof ExternalHostError) {
             throw err;
           }
           logger.debug({ err, url: buildURL }, 'Failed to retrieve build');
-          return null;
+          // throw an error to disable caching
+          throw new ExternalHostError(err);
         }
       },
       { concurrency: 4 },
     );
 
-    const filteredResult = result.filter(is.truthy);
-    return filteredResult.length === result.length ? filteredResult : null;
+    return result;
   }
 
   @cache({
@@ -296,9 +309,9 @@ export class TerraformProviderDatasource extends TerraformDatasource {
     // The hashes are formatted as the result of sha256sum in plain text, each line: <hash>\t<filename>
     let rawHashData: string;
     try {
-      rawHashData = (await this.http.get(zipHashUrl)).body;
+      rawHashData = (await this.http.getText(zipHashUrl)).body;
     } catch (err) {
-      /* istanbul ignore next */
+      /* v8 ignore next 3 -- hard to test */
       if (err instanceof ExternalHostError) {
         throw err;
       }
@@ -325,7 +338,7 @@ export class TerraformProviderDatasource extends TerraformDatasource {
     version: string,
   ): Promise<VersionDetailResponse> {
     return (
-      await this.http.getJson<VersionDetailResponse>(
+      await this.http.getJsonUnchecked<VersionDetailResponse>(
         `${TerraformProviderDatasource.defaultRegistryUrls[1]}/${backendLookUpName}/${version}/index.json`,
       )
     ).body;

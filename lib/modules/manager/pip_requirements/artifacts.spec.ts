@@ -1,26 +1,26 @@
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { mockExecAll } from '../../../../test/exec-util';
-import { fs, mocked } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import * as _datasource from '../../datasource';
 import type { UpdateArtifactsConfig } from '../types';
 import { updateArtifacts } from '.';
+import { mockExecAll } from '~test/exec-util';
+import { fs } from '~test/util';
 
-const datasource = mocked(_datasource);
+const datasource = vi.mocked(_datasource);
 
-jest.mock('../../../util/exec/common');
-jest.mock('../../../util/fs');
-jest.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/exec/common');
+vi.mock('../../../util/fs');
+vi.mock('../../datasource', () => mockDeep());
 
 process.env.CONTAINERBASE = 'true';
 
 const adminConfig: RepoGlobalConfig = {
   // `join` fixes Windows CI
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/renovate/cache'),
-  containerbaseDir: join('/tmp/renovate/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/renovate/cache'),
+  containerbaseDir: upath.join('/tmp/renovate/cache/containerbase'),
 };
 
 const config: UpdateArtifactsConfig = {

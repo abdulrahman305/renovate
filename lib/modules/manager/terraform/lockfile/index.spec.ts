@@ -1,18 +1,18 @@
 import { codeBlock } from 'common-tags';
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { fs, mocked } from '../../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../../config/global';
 import { getPkgReleases } from '../../../datasource';
 import type { UpdateArtifactsConfig } from '../../types';
 import { updateArtifacts } from '../index';
 import { TerraformProviderHash } from './hash';
 import { getNewConstraint } from './index';
+import { fs } from '~test/util';
 
 // auto-mock fs
-jest.mock('../../../../util/fs');
-jest.mock('./hash');
-jest.mock('../../../datasource', () => mockDeep());
+vi.mock('../../../../util/fs');
+vi.mock('./hash');
+vi.mock('../../../datasource', () => mockDeep());
 
 const config = {
   constraints: {},
@@ -20,19 +20,37 @@ const config = {
 
 const adminConfig = {
   // `join` fixes Windows CI
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/renovate/cache'),
-  containerbaseDir: join('/tmp/renovate/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/renovate/cache'),
+  containerbaseDir: upath.join('/tmp/renovate/cache/containerbase'),
 };
 
-const mockHash = mocked(TerraformProviderHash).createHashes;
-const mockGetPkgReleases = getPkgReleases as jest.MockedFunction<
-  typeof getPkgReleases
->;
+const mockHash = vi.mocked(TerraformProviderHash).createHashes;
+const mockGetPkgReleases = vi.mocked(getPkgReleases);
 
 describe('modules/manager/terraform/lockfile/index', () => {
   beforeEach(() => {
     GlobalConfig.set(adminConfig);
+  });
+
+  it('returns artifact error', async () => {
+    fs.findLocalSiblingOrParent.mockResolvedValueOnce('.terraform.lock.hcl');
+    fs.readLocalFile.mockRejectedValueOnce(new Error('File not found'));
+    expect(
+      await updateArtifacts({
+        packageFileName: 'main.tf',
+        updatedDeps: [{ depName: 'aws' }],
+        newPackageFileContent: '',
+        config,
+      }),
+    ).toEqual([
+      {
+        artifactError: {
+          lockFile: '.terraform.lock.hcl',
+          stderr: 'File not found',
+        },
+      },
+    ]);
   });
 
   it('returns null if no .terraform.lock.hcl found', async () => {
@@ -659,7 +677,7 @@ describe('modules/manager/terraform/lockfile/index', () => {
     ]);
 
     const localConfig: UpdateArtifactsConfig = {
-      updateType: 'lockFileMaintenance',
+      isLockFileMaintenance: true,
       ...config,
     };
 
@@ -769,7 +787,7 @@ describe('modules/manager/terraform/lockfile/index', () => {
     ]);
 
     const localConfig: UpdateArtifactsConfig = {
-      updateType: 'lockFileMaintenance',
+      isLockFileMaintenance: true,
       ...config,
     };
 
@@ -874,7 +892,7 @@ describe('modules/manager/terraform/lockfile/index', () => {
     ]);
 
     const localConfig: UpdateArtifactsConfig = {
-      updateType: 'lockFileMaintenance',
+      isLockFileMaintenance: true,
       ...config,
     };
     const result = await updateArtifacts({
@@ -944,7 +962,7 @@ describe('modules/manager/terraform/lockfile/index', () => {
     mockHash.mockResolvedValue(null);
 
     const localConfig: UpdateArtifactsConfig = {
-      updateType: 'lockFileMaintenance',
+      isLockFileMaintenance: true,
       ...config,
     };
 
@@ -980,7 +998,7 @@ describe('modules/manager/terraform/lockfile/index', () => {
 
   it('return null if experimental flag is not set', async () => {
     const localConfig: UpdateArtifactsConfig = {
-      updateType: 'lockFileMaintenance',
+      isLockFileMaintenance: true,
       ...config,
     };
     const result = await updateArtifacts({

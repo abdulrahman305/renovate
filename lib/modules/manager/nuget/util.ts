@@ -1,11 +1,16 @@
 import upath from 'upath';
-import type { XmlElement } from 'xmldoc';
+import type { XmlElement, XmlNodeBase } from 'xmldoc';
 import { XmlDocument } from 'xmldoc';
 import { logger } from '../../../logger';
-import { findUpLocal, readLocalFile } from '../../../util/fs';
+import {
+  findLocalSiblingOrParent,
+  findUpLocal,
+  readLocalFile,
+} from '../../../util/fs';
 import { minimatch } from '../../../util/minimatch';
 import { regEx } from '../../../util/regex';
 import { nugetOrg } from '../../datasource/nuget';
+import { GlobalJson } from './schema';
 import type { NugetPackageDependency, Registry } from './types';
 
 export async function readFileAsXmlDocument(
@@ -71,13 +76,13 @@ export async function getConfiguredRegistries(
     const sourceMappedPackagePatterns = packageSourceMapping
       ?.childWithAttribute('key', registry.name)
       ?.childrenNamed('package')
-      .map((packagePattern) => packagePattern.attr['pattern']);
+      .map((packagePattern) => packagePattern.attr.pattern);
 
     registry.sourceMappedPackagePatterns = sourceMappedPackagePatterns;
   }
 
   for (const child of packageSources.children) {
-    if (child.type === 'element') {
+    if (isXmlElement(child)) {
       if (child.name === 'clear') {
         logger.debug(`clearing registry URLs`);
         registries.length = 0;
@@ -91,7 +96,7 @@ export async function getConfiguredRegistries(
           const sourceMappedPackagePatterns = packageSourceMapping
             ?.childWithAttribute('key', child.attr.key)
             ?.childrenNamed('package')
-            .map((packagePattern) => packagePattern.attr['pattern']);
+            .map((packagePattern) => packagePattern.attr.pattern);
 
           logger.debug(
             {
@@ -125,7 +130,7 @@ export async function getConfiguredRegistries(
   if (disabledPackageSources) {
     for (const child of disabledPackageSources.children) {
       if (
-        child.type === 'element' &&
+        isXmlElement(child) &&
         child.name === 'add' &&
         child.attr.value === 'true'
       ) {
@@ -136,7 +141,23 @@ export async function getConfiguredRegistries(
     }
   }
 
+  // Deduplicate registries with #procolVersion=3
+  // Keep any which include sourceMappedPackagePatterns
+  const plainRegistryUrls = registries
+    .filter((r) => !r.sourceMappedPackagePatterns)
+    .map((r) => r.url);
+  registries = registries.filter((r) => {
+    return (
+      r.sourceMappedPackagePatterns ??
+      !plainRegistryUrls.includes(`${r.url}#protocolVersion=3`)
+    );
+  });
+
   return registries;
+}
+
+export function isXmlElement(child: XmlNodeBase): child is XmlElement {
+  return child.type === 'element';
 }
 
 export function findVersion(parsedXml: XmlDocument): XmlElement | null {
@@ -192,6 +213,7 @@ export function applyRegistries(
  * Sorts patterns by specificity:
  * 1. Exact match patterns
  * 2. Wildcard match patterns
+ * The longest pattern has precedence.
  */
 function sortPatterns(
   a: [string, Registry[]],
@@ -205,5 +227,36 @@ function sortPatterns(
     return -1;
   }
 
-  return a[0].localeCompare(b[0]) * -1;
+  const aTrim = a[0].slice(0, -1);
+  const bTrim = b[0].slice(0, -1);
+
+  return aTrim.localeCompare(bTrim) * -1;
+}
+
+export async function findGlobalJson(
+  packageFile: string,
+): Promise<GlobalJson | null> {
+  const globalJsonPath = await findLocalSiblingOrParent(
+    packageFile,
+    'global.json',
+  );
+  if (!globalJsonPath) {
+    return null;
+  }
+
+  const content = await readLocalFile(globalJsonPath, 'utf8');
+  if (!content) {
+    logger.debug({ packageFile, globalJsonPath }, 'Failed to read global.json');
+    return null;
+  }
+
+  const result = await GlobalJson.safeParseAsync(content);
+  if (!result.success) {
+    logger.debug(
+      { packageFile, globalJsonPath, err: result.error },
+      'Failed to parse global.json',
+    );
+    return null;
+  }
+  return result.data;
 }

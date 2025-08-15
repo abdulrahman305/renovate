@@ -1,7 +1,5 @@
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { envMock, mockExecAll } from '../../../../test/exec-util';
-import { env, fs, git, mocked, partial } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import * as docker from '../../../util/exec/docker';
@@ -9,13 +7,14 @@ import type { StatusResult } from '../../../util/git/types';
 import * as _datasource from '../../datasource';
 import type { UpdateArtifactsConfig } from '../types';
 import { updateArtifacts } from '.';
+import { envMock, mockExecAll } from '~test/exec-util';
+import { env, fs, git, partial } from '~test/util';
 
-jest.mock('../../../util/exec/env');
-jest.mock('../../../util/git');
-jest.mock('../../../util/fs');
-jest.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/exec/env');
+vi.mock('../../../util/fs');
+vi.mock('../../datasource', () => mockDeep());
 
-const datasource = mocked(_datasource);
+const datasource = vi.mocked(_datasource);
 
 delete process.env.CP_HOME_DIR;
 process.env.CONTAINERBASE = 'true';
@@ -23,16 +22,16 @@ process.env.CONTAINERBASE = 'true';
 const config: UpdateArtifactsConfig = {};
 
 const adminConfig: RepoGlobalConfig = {
-  localDir: join('/tmp/github/some/repo'),
-  cacheDir: join('/tmp/cache'),
-  containerbaseDir: join('/tmp/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'),
+  cacheDir: upath.join('/tmp/cache'),
+  containerbaseDir: upath.join('/tmp/cache/containerbase'),
   dockerSidecarImage: 'ghcr.io/containerbase/sidecar',
 };
 
 describe('modules/manager/cocoapods/artifacts', () => {
   beforeEach(() => {
     env.getChildProcessEnv.mockReturnValue(envMock.basic);
-    jest.spyOn(docker, 'removeDockerContainer').mockResolvedValue();
+    vi.spyOn(docker, 'removeDockerContainer').mockResolvedValue();
     // can't be mocked
     docker.resetPrefetchedImages();
 

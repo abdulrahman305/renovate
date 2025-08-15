@@ -10,10 +10,9 @@ import platforms from './api';
 import { setPlatformScmApi } from './scm';
 import type { Platform } from './types';
 
-export * from './types';
+export type * from './types';
 
 export const getPlatformList = (): string[] => Array.from(platforms.keys());
-export const getPlatforms = (): Map<string, Platform> => platforms;
 
 let _platform: Platform | undefined;
 
@@ -41,7 +40,7 @@ export function setPlatformApi(name: PlatformId): void {
 }
 
 export async function initPlatform(config: AllConfig): Promise<AllConfig> {
-  setPrivateKey(config.gitPrivateKey);
+  setPrivateKey(config.gitPrivateKey, config.gitPrivateKeyPassphrase);
   setNoVerify(config.gitNoVerify ?? []);
   // TODO: `platform` (#22198)
   setPlatformApi(config.platform!);
@@ -55,7 +54,6 @@ export async function initPlatform(config: AllConfig): Promise<AllConfig> {
       ...(config.hostRules ?? []),
     ],
   };
-  // istanbul ignore else
   if (config?.gitAuthor) {
     logger.debug(`Using configured gitAuthor (${config.gitAuthor})`);
     returnConfig.gitAuthor = config.gitAuthor;

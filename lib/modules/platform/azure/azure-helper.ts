@@ -8,7 +8,7 @@ import { logger } from '../../../logger';
 import { streamToString } from '../../../util/streams';
 import { getNewBranchName } from '../util';
 import * as azureApi from './azure-got-wrapper';
-import { WrappedExceptionSchema } from './schema';
+import { WrappedException } from './schema';
 import {
   getBranchNameWithoutRefsPrefix,
   getBranchNameWithoutRefsheadsPrefix,
@@ -84,23 +84,24 @@ export async function getFile(
   if (item?.readable) {
     const fileContent = await streamToString(item);
     try {
-      const result = WrappedExceptionSchema.safeParse(fileContent);
+      const result = WrappedException.safeParse(fileContent);
       if (result.success) {
         if (result.data.typeKey === 'GitItemNotFoundException') {
-          logger.warn(`Unable to find file ${filePath}`);
+          logger.warn({ filePath }, 'Unable to find file');
           return null;
         }
         if (result.data.typeKey === 'GitUnresolvableToCommitException') {
-          logger.warn(`Unable to find branch ${branchName}`);
+          logger.warn({ branchName }, 'Unable to find branch');
           return null;
         }
       }
-    } catch {
+    } catch /* v8 ignore start */ {
       // it 's not a JSON, so I send the content directly with the line under
-    }
+    } /* v8 ignore stop */
 
     return fileContent;
   }
+
   return null; // no file found
 }
 
@@ -123,11 +124,11 @@ export async function getMergeMethod(
   logger.debug(
     `getMergeMethod(branchRef=${branchRef}, defaultBranch=${defaultBranch})`,
   );
-  type Scope = {
+  interface Scope {
     repositoryId: string;
     refName?: string;
     matchKind: 'Prefix' | 'Exact' | 'DefaultBranch';
-  };
+  }
   const isRelevantScope = (scope: Scope): boolean => {
     if (
       scope.matchKind === 'DefaultBranch' &&

@@ -57,6 +57,12 @@ export function generateBranchName(update: RenovateConfig): void {
   // Check whether to use a group name
   const newMajor = String(update.newMajor);
   const newMinor = String(update.newMinor);
+  if (!update.groupName && update.sharedVariableName) {
+    logger.debug(
+      `Using sharedVariableName=${update.sharedVariableName} as groupName for depName=${update.depName}`,
+    );
+    update.groupName = update.sharedVariableName;
+  }
   if (update.groupName) {
     update.groupName = template.compile(update.groupName, update);
     logger.trace('Using group branchName template');
@@ -127,9 +133,6 @@ export function generateBranchName(update: RenovateConfig): void {
     // Compile extra times in case of nested templates
     update.branchName = template.compile(update.branchName, update);
     update.branchName = template.compile(update.branchName, update);
-  }
-  if (update.updateType === 'minor' && update.separateMultipleMinor) {
-    update.branchName = update.branchName.replace('.x', `.${newMinor}.x`);
   }
   update.branchName = cleanBranchName(
     update.branchName,

@@ -1,12 +1,11 @@
 import { execSync as _execSync } from 'node:child_process';
-import { mockedFunction } from '../../../../test/util';
 import { LocalFs } from './scm';
 
-jest.mock('glob', () => ({
-  glob: jest.fn().mockImplementation(() => Promise.resolve(['file1', 'file2'])),
+vi.mock('glob', () => ({
+  glob: vi.fn().mockImplementation(() => Promise.resolve(['file1', 'file2'])),
 }));
-jest.mock('node:child_process');
-const execSync = mockedFunction(_execSync);
+vi.mock('node:child_process');
+const execSync = vi.mocked(_execSync);
 
 describe('modules/platform/local/scm', () => {
   let localFs: LocalFs;
@@ -53,6 +52,12 @@ describe('modules/platform/local/scm', () => {
     it('should return file list using git', async () => {
       execSync.mockReturnValueOnce('file1\nfile2');
       expect(await localFs.getFileList()).toHaveLength(2);
+
+      expect(execSync).toHaveBeenCalledOnce();
+      expect(execSync).toHaveBeenCalledWith('git ls-files', {
+        encoding: 'utf-8',
+        maxBuffer: 1024 * 1024 * 10,
+      });
     });
 
     it('should return file list using glob', async () => {

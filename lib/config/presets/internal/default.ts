@@ -141,11 +141,11 @@ export const presets: Record<string, Preset> = {
     description: 'Disable Renovate Dependency Dashboard creation.',
   },
   disableDevDependencies: {
-    description: 'Do not update `devDependencies` versions/ranges.',
+    description: 'Do not update development dependencies.',
     packageRules: [
       {
         enabled: false,
-        matchDepTypes: ['devDependencies'],
+        matchDepTypes: ['devDependencies', 'dev-dependencies', 'dev'],
       },
     ],
   },
@@ -172,10 +172,6 @@ export const presets: Record<string, Preset> = {
         matchHost: 'https://{{arg0}}',
       },
     ],
-  },
-  disableLockFiles: {
-    description: 'Disable lock file updates.',
-    updateLockFiles: false,
   },
   disableMajorUpdates: {
     description: 'Disable `major` updates.',
@@ -408,10 +404,10 @@ export const presets: Record<string, Preset> = {
     ],
   },
   pinDevDependencies: {
-    description: 'Pin dependency versions for `devDependencies`.',
+    description: 'Pin dependency versions for development dependencies.',
     packageRules: [
       {
-        matchDepTypes: ['devDependencies'],
+        matchDepTypes: ['devDependencies', 'dev-dependencies', 'dev'],
         rangeStrategy: 'pin',
       },
     ],
@@ -422,14 +418,14 @@ export const presets: Record<string, Preset> = {
   },
   pinOnlyDevDependencies: {
     description:
-      'Pin dependency versions for `devDependencies` and retain SemVer ranges for others.',
+      'Pin dependency versions for development dependencies and retain SemVer ranges for others.',
     packageRules: [
       {
         matchPackageNames: ['*'],
         rangeStrategy: 'replace',
       },
       {
-        matchDepTypes: ['devDependencies'],
+        matchDepTypes: ['devDependencies', 'dev-dependencies', 'dev'],
         rangeStrategy: 'pin',
       },
       {
@@ -609,6 +605,10 @@ export const presets: Record<string, Preset> = {
     description:
       'Separate `patch` and `minor` releases of dependencies into separate PRs.',
     separateMinorPatch: true,
+  },
+  skipArtifactsUpdate: {
+    description: 'Skips artifact updates.',
+    skipArtifactsUpdate: true,
   },
   skipStatusChecks: {
     description: 'Skip status checks and automerge right away.',

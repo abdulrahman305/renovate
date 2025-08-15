@@ -27,7 +27,7 @@ export class HelmReleaseExtractor extends DependencyExtractor {
       return [];
     }
 
-    // istanbul ignore if
+    /* v8 ignore next 7 -- needs test */
     if (!is.plainObject(helmReleases)) {
       logger.debug(
         { helmReleases },
@@ -79,7 +79,7 @@ export class HelmReleaseExtractor extends DependencyExtractor {
     config: ExtractConfig,
     dep: PackageDependency,
   ): void {
-    const { depName: packageName, datasource } = getDep(
+    const { packageName, datasource } = getDep(
       depName,
       false,
       config.registryAliases,

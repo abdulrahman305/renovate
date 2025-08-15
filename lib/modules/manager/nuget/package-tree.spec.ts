@@ -1,20 +1,15 @@
-import { fs as memfs } from 'memfs';
 import upath from 'upath';
-import { Fixtures } from '../../../../test/fixtures';
-import { scm } from '../../../../test/util';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import { getDependentPackageFiles } from './package-tree';
+import { Fixtures } from '~test/fixtures';
+import { scm } from '~test/util';
 
-jest.mock('fs', () => memfs);
-jest.mock('fs-extra', () =>
-  jest
-    .requireActual<
-      typeof import('../../../../test/fixtures')
-    >('../../../../test/fixtures')
-    .fsExtra(),
+vi.mock('fs-extra', async () =>
+  (
+    await vi.importActual<typeof import('~test/fixtures')>('~test/fixtures')
+  ).fsExtra(),
 );
-jest.mock('../../../util/git');
 
 const adminConfig: RepoGlobalConfig = {
   localDir: upath.resolve('/tmp/repo'),
@@ -93,6 +88,26 @@ describe('modules/manager/nuget/package-tree', () => {
 
       expect(
         await getDependentPackageFiles('Directory.Packages.props', true),
+      ).toEqual([
+        { isLeaf: false, name: 'one/one.csproj' },
+        { isLeaf: true, name: 'two/two.csproj' },
+      ]);
+    });
+
+    it('returns project for two projects with one reference and global.json', async () => {
+      scm.getFileList.mockResolvedValue(['one/one.csproj', 'two/two.csproj']);
+      Fixtures.mock({
+        '/tmp/repo/one/one.csproj': Fixtures.get(
+          'two-one-reference-with-central-versions/one/one.csproj',
+        ),
+        '/tmp/repo/two/two.csproj': Fixtures.get(
+          'two-one-reference-with-central-versions/two/two.csproj',
+        ),
+        '/tmp/repo/global.json': '{}',
+      });
+
+      expect(
+        await getDependentPackageFiles('global.json', false, true),
       ).toEqual([
         { isLeaf: false, name: 'one/one.csproj' },
         { isLeaf: true, name: 'two/two.csproj' },

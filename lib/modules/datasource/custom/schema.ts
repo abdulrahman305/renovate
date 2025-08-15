@@ -1,12 +1,13 @@
 import { z } from 'zod';
+import { MaybeTimestamp } from '../../../util/timestamp';
 
-export const ReleaseResultZodSchema = z.object({
+export const ReleaseResultZod = z.object({
   releases: z.array(
     z
       .object({
         version: z.string(),
         isDeprecated: z.boolean().optional(),
-        releaseTimestamp: z.string().optional(),
+        releaseTimestamp: MaybeTimestamp,
         sourceUrl: z.string().optional(),
         sourceDirectory: z.string().optional(),
         changelogUrl: z.string().optional(),

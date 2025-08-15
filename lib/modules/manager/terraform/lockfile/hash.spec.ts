@@ -2,12 +2,13 @@ import { createReadStream } from 'node:fs';
 import type { DirectoryResult } from 'tmp-promise';
 import { dir } from 'tmp-promise';
 import upath from 'upath';
-import { Fixtures } from '../../../../../test/fixtures';
-import * as httpMock from '../../../../../test/http-mock';
-import { getFixturePath, logger } from '../../../../../test/util';
 import { GlobalConfig } from '../../../../config/global';
+import { ExternalHostError } from '../../../../types/errors/external-host-error';
 import { TerraformProviderDatasource } from '../../../datasource/terraform-provider';
 import { TerraformProviderHash } from './hash';
+import { Fixtures } from '~test/fixtures';
+import * as httpMock from '~test/http-mock';
+import { getFixturePath, logger } from '~test/util';
 
 const releaseBackendUrl = TerraformProviderDatasource.defaultRegistryUrls[1];
 const terraformCloudReleaseBackendUrl =
@@ -44,12 +45,12 @@ describe('modules/manager/terraform/lockfile/hash', () => {
       .scope('https://example.com')
       .get('/.well-known/terraform.json')
       .reply(200, '');
-    const result = await TerraformProviderHash.createHashes(
+    const result = TerraformProviderHash.createHashes(
       'https://example.com',
       'test/gitlab',
       '2.56.0',
     );
-    expect(result).toBeNull();
+    await expect(result).rejects.toThrow(ExternalHostError);
   });
 
   it('return null if requesting a version which is not available', async () => {
@@ -58,12 +59,12 @@ describe('modules/manager/terraform/lockfile/hash', () => {
       .get('/terraform-provider-azurerm/2.59.0/index.json')
       .reply(403, '');
 
-    const result = await TerraformProviderHash.createHashes(
+    const result = TerraformProviderHash.createHashes(
       'https://releases.hashicorp.com',
       'hashicorp/azurerm',
       '2.59.0',
     );
-    expect(result).toBeNull();
+    await expect(result).rejects.toThrow(ExternalHostError);
   });
 
   it('backend index throws error', async () => {
@@ -72,6 +73,19 @@ describe('modules/manager/terraform/lockfile/hash', () => {
       .get('/terraform-provider-azurerm/2.56.0/index.json')
       .replyWithError('');
 
+    const result = TerraformProviderHash.createHashes(
+      'https://releases.hashicorp.com',
+      'hashicorp/azurerm',
+      '2.56.0',
+    );
+    await expect(result).rejects.toThrow(ExternalHostError);
+  });
+
+  it('returns null for no builds', async () => {
+    vi.spyOn(
+      TerraformProviderHash.terraformDatasource,
+      'getBuilds',
+    ).mockResolvedValueOnce(null);
     const result = await TerraformProviderHash.createHashes(
       'https://releases.hashicorp.com',
       'hashicorp/azurerm',
@@ -366,7 +380,7 @@ describe('modules/manager/terraform/lockfile/hash', () => {
     ]);
   });
 
-  it('it does not add any ziphashes when the shasums endpoint fails`', async () => {
+  it('does not add any ziphashes when the shasums endpoint fails`', async () => {
     const readStreamLinux = createReadStream(
       'lib/modules/manager/terraform/lockfile/__fixtures__/test.zip',
     );

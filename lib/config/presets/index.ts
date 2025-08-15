@@ -7,7 +7,6 @@ import { logger } from '../../logger';
 import { ExternalHostError } from '../../types/errors/external-host-error';
 import * as memCache from '../../util/cache/memory';
 import * as packageCache from '../../util/cache/package';
-import { getTtlOverride } from '../../util/cache/package/decorator';
 import { clone } from '../../util/clone';
 import { regEx } from '../../util/regex';
 import * as template from '../../util/template';
@@ -17,6 +16,7 @@ import * as migration from '../migration';
 import type { AllConfig, RenovateConfig } from '../types';
 import { mergeChildConfig } from '../utils';
 import { removedPresets } from './common';
+import * as forgejo from './forgejo';
 import * as gitea from './gitea';
 import * as github from './github';
 import * as gitlab from './gitlab';
@@ -36,13 +36,14 @@ import {
 } from './util';
 
 const presetSources: Record<string, PresetApi> = {
-  github,
-  npm,
-  gitlab,
+  forgejo,
   gitea,
-  local,
-  internal,
+  github,
+  gitlab,
   http,
+  internal,
+  local,
+  npm,
 };
 
 const presetCacheNamespace = 'preset';
@@ -112,7 +113,7 @@ export async function getPreset(
   if (newPreset === null) {
     return {};
   }
-  const { presetSource, repo, presetPath, presetName, tag, params } =
+  const { presetSource, repo, presetPath, presetName, tag, params, rawParams } =
     parsePreset(preset);
   const cacheKey = `preset:${preset}`;
   const presetCachePersistence = GlobalConfig.get(
@@ -136,12 +137,7 @@ export async function getPreset(
       tag,
     });
     if (presetCachePersistence) {
-      await packageCache.set(
-        presetCacheNamespace,
-        cacheKey,
-        presetConfig,
-        getTtlOverride(presetCacheNamespace) ?? 15,
-      );
+      await packageCache.set(presetCacheNamespace, cacheKey, presetConfig, 15);
     } else {
       memCache.set(cacheKey, presetConfig);
     }
@@ -155,11 +151,13 @@ export async function getPreset(
     for (const [index, value] of params.entries()) {
       argMapping[`arg${index}`] = value;
     }
+    if (rawParams) {
+      argMapping.args = rawParams;
+    }
     presetConfig = replaceArgs(presetConfig, argMapping);
   }
   logger.trace({ presetConfig }, `Applied params to preset ${preset}`);
   const presetKeys = Object.keys(presetConfig);
-  // istanbul ignore if
   if (
     presetKeys.length === 2 &&
     presetKeys.includes('description') &&
@@ -212,7 +210,6 @@ export async function resolveConfigPresets(
           ignorePresets,
           existingPresets.concat([preset]),
         );
-        // istanbul ignore if
         if (inputConfig?.ignoreDeps?.length === 0) {
           delete presetConfig.description;
         }
@@ -271,11 +268,9 @@ async function fetchPreset(
     return await getPreset(preset, baseConfig ?? inputConfig);
   } catch (err) {
     logger.debug({ preset, err }, 'Preset fetch error');
-    // istanbul ignore if
     if (err instanceof ExternalHostError) {
       throw err;
     }
-    // istanbul ignore if
     if (err.message === PLATFORM_RATE_LIMIT_EXCEEDED) {
       throw err;
     }
@@ -295,7 +290,6 @@ async function fetchPreset(
     } else {
       error.validationError = `Preset caused unexpected error (${preset})`;
     }
-    // istanbul ignore if
     if (existingPresets.length) {
       error.validationError +=
         '. Note: this is a *nested* preset so please contact the preset author if you are unable to fix it yourself.';
@@ -313,7 +307,6 @@ function shouldResolvePreset(
   existingPresets: string[],
   ignorePresets: string[],
 ): boolean {
-  // istanbul ignore if
   if (existingPresets.includes(preset)) {
     logger.debug(
       `Already seen preset ${preset} in [${existingPresets.join(', ')}]`,
@@ -321,7 +314,6 @@ function shouldResolvePreset(
     return false;
   }
   if (ignorePresets.includes(preset)) {
-    // istanbul ignore next
     logger.debug(
       `Ignoring preset ${preset} in [${existingPresets.join(', ')}]`,
     );

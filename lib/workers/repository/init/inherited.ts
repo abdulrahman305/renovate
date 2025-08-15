@@ -1,8 +1,10 @@
 import is from '@sindresorhus/is';
 import { dequal } from 'dequal';
 import { mergeChildConfig, removeGlobalConfig } from '../../../config';
+import { decryptConfig } from '../../../config/decrypt';
 import { parseFileConfig } from '../../../config/parse';
 import { resolveConfigPresets } from '../../../config/presets';
+import { applySecretsAndVariablesToConfig } from '../../../config/secrets';
 import type { RenovateConfig } from '../../../config/types';
 import { validateConfig } from '../../../config/validation';
 import {
@@ -12,6 +14,9 @@ import {
 } from '../../../constants/error-messages';
 import { logger } from '../../../logger';
 import { platform } from '../../../modules/platform';
+import * as hostRules from '../../../util/host-rules';
+import * as queue from '../../../util/http/queue';
+import * as throttle from '../../../util/http/throttle';
 import * as template from '../../../util/template';
 
 export async function mergeInheritedConfig(
@@ -93,15 +98,24 @@ export async function mergeInheritedConfig(
       'Found warnings in inherited configuration.',
     );
   }
-  let filteredConfig = removeGlobalConfig(inheritedConfig, true);
-  if (!dequal(inheritedConfig, filteredConfig)) {
+
+  let decryptedConfig = await decryptConfig(inheritedConfig, config.repository);
+
+  let filteredConfig = removeGlobalConfig(decryptedConfig, true);
+  if (!dequal(decryptedConfig, filteredConfig)) {
     logger.debug(
-      { inheritedConfig, filteredConfig },
+      { inheritedConfig: decryptedConfig, filteredConfig },
       'Removed global config from inherited config.',
     );
   }
 
   if (is.nullOrUndefined(filteredConfig.extends)) {
+    filteredConfig = applySecretsAndVariablesToConfig({
+      config: filteredConfig,
+      secrets: config.secrets ?? {},
+      variables: config.variables ?? {},
+    });
+    setInheritedHostRules(filteredConfig);
     return mergeChildConfig(config, filteredConfig);
   }
 
@@ -128,14 +142,44 @@ export async function mergeInheritedConfig(
     );
   }
 
+  // decrypt again, as resolved presets could contain encrypted values
+  decryptedConfig = await decryptConfig(resolvedConfig, config.repository);
+
   // remove global config options once again, as resolved presets could have added some
-  filteredConfig = removeGlobalConfig(resolvedConfig, true);
-  if (!dequal(resolvedConfig, filteredConfig)) {
+  filteredConfig = removeGlobalConfig(decryptedConfig, true);
+  if (!dequal(decryptedConfig, filteredConfig)) {
     logger.debug(
-      { inheritedConfig: resolvedConfig, filteredConfig },
+      { inheritedConfig: decryptedConfig, filteredConfig },
       'Removed global config from inherited config presets.',
     );
   }
 
+  filteredConfig = applySecretsAndVariablesToConfig({
+    config: filteredConfig,
+    secrets: config.secrets ?? {},
+    variables: config.variables ?? {},
+  });
+  setInheritedHostRules(filteredConfig);
   return mergeChildConfig(config, filteredConfig);
+}
+
+function setInheritedHostRules(config: RenovateConfig): void {
+  if (config.hostRules) {
+    logger.debug('Setting hostRules from config');
+    for (const rule of config.hostRules) {
+      try {
+        hostRules.add(rule);
+      } catch (err) {
+        // istanbul ignore next
+        logger.warn(
+          { err, config: rule },
+          'Error setting hostRule from config',
+        );
+      }
+    }
+    // host rules can change concurrency
+    queue.clear();
+    throttle.clear();
+    delete config.hostRules;
+  }
 }

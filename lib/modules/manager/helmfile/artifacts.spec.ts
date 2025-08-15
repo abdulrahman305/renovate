@@ -1,8 +1,6 @@
 import { codeBlock } from 'common-tags';
-import { mockDeep } from 'jest-mock-extended';
-import { join } from 'upath';
-import { envMock, mockExecAll } from '../../../../test/exec-util';
-import { env, fs, git, mocked } from '../../../../test/util';
+import upath from 'upath';
+import { mockDeep } from 'vitest-mock-extended';
 import { GlobalConfig } from '../../../config/global';
 import type { RepoGlobalConfig } from '../../../config/types';
 import * as docker from '../../../util/exec/docker';
@@ -10,21 +8,22 @@ import * as hostRules from '../../../util/host-rules';
 import * as _datasource from '../../datasource';
 import type { UpdateArtifactsConfig } from '../types';
 import * as helmfile from '.';
+import { envMock, mockExecAll } from '~test/exec-util';
+import { env, fs, git } from '~test/util';
 
-jest.mock('../../datasource', () => mockDeep());
-jest.mock('../../../util/exec/env');
-jest.mock('../../../util/http');
-jest.mock('../../../util/fs');
-jest.mock('../../../util/git');
+vi.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/exec/env');
+vi.mock('../../../util/http');
+vi.mock('../../../util/fs');
 
-const datasource = mocked(_datasource);
+const datasource = vi.mocked(_datasource);
 
 process.env.CONTAINERBASE = 'true';
 
 const adminConfig: RepoGlobalConfig = {
-  localDir: join('/tmp/github/some/repo'), // `join` fixes Windows CI
-  cacheDir: join('/tmp/renovate/cache'),
-  containerbaseDir: join('/tmp/renovate/cache/containerbase'),
+  localDir: upath.join('/tmp/github/some/repo'), // `join` fixes Windows CI
+  cacheDir: upath.join('/tmp/renovate/cache'),
+  containerbaseDir: upath.join('/tmp/renovate/cache/containerbase'),
   dockerSidecarImage: 'ghcr.io/containerbase/sidecar',
 };
 

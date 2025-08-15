@@ -1,16 +1,13 @@
 import is from '@sindresorhus/is';
 import { logger } from '../../../logger';
 import { regEx } from '../../../util/regex';
-import { parse as parseToml } from '../../../util/toml';
 import { PypiDatasource } from '../../datasource/pypi';
 import { normalizePythonDepName } from '../../datasource/pypi/common';
 import type { PackageDependency } from '../types';
-import type { PyProject } from './schema';
-import { PyProjectSchema } from './schema';
-import type { Pep508ParseResult, Pep621ManagerData } from './types';
+import type { Pep508ParseResult } from './types';
 
 const pep508Regex = regEx(
-  /^(?<packageName>[A-Z0-9._-]+)\s*(\[(?<extras>[A-Z0-9,._-]+)\])?\s*(?<currentValue>[^;]+)?(;\s*(?<marker>.*))?/i,
+  /^(?<packageName>[A-Z0-9._-]+)\s*(\[(?<extras>[A-Z0-9\s,._-]+)\])?\s*(?<currentValue>[^;]+)?(;\s*(?<marker>.*))?/i,
 );
 
 export const depTypes = {
@@ -43,13 +40,22 @@ export function parsePEP508(
     packageName: regExpExec.groups.packageName,
   };
   if (is.nonEmptyString(regExpExec.groups.currentValue)) {
-    result.currentValue = regExpExec.groups.currentValue;
+    if (
+      regExpExec.groups.currentValue.startsWith('(') &&
+      regExpExec.groups.currentValue.endsWith(')')
+    ) {
+      result.currentValue = regExpExec.groups.currentValue.slice(1, -1).trim();
+    } else {
+      result.currentValue = regExpExec.groups.currentValue;
+    }
   }
+
   if (is.nonEmptyString(regExpExec.groups.marker)) {
     result.marker = regExpExec.groups.marker;
   }
   if (is.nonEmptyString(regExpExec.groups.extras)) {
-    result.extras = regExpExec.groups.extras.split(',');
+    // trim to remove allowed whitespace between brackets
+    result.extras = regExpExec.groups.extras.split(',').map((e) => e.trim());
   }
 
   return result;
@@ -81,59 +87,4 @@ export function pep508ToPackageDependency(
     }
   }
   return dep;
-}
-
-export function parseDependencyGroupRecord(
-  depType: string,
-  records: Record<string, string[]> | null | undefined,
-): PackageDependency[] {
-  if (is.nullOrUndefined(records)) {
-    return [];
-  }
-
-  const deps: PackageDependency<Pep621ManagerData>[] = [];
-  for (const [depGroup, pep508Strings] of Object.entries(records)) {
-    for (const dep of parseDependencyList(depType, pep508Strings)) {
-      deps.push({
-        ...dep,
-        depName: dep.packageName!,
-        managerData: { depGroup },
-      });
-    }
-  }
-  return deps;
-}
-
-export function parseDependencyList(
-  depType: string,
-  list: string[] | null | undefined,
-): PackageDependency[] {
-  if (is.nullOrUndefined(list)) {
-    return [];
-  }
-
-  const deps: PackageDependency[] = [];
-  for (const element of list) {
-    const dep = pep508ToPackageDependency(depType, element);
-    if (is.truthy(dep)) {
-      deps.push(dep);
-    }
-  }
-  return deps;
-}
-
-export function parsePyProject(
-  packageFile: string,
-  content: string,
-): PyProject | null {
-  try {
-    const jsonMap = parseToml(content);
-    return PyProjectSchema.parse(jsonMap);
-  } catch (err) {
-    logger.debug(
-      { packageFile, err },
-      `Failed to parse and validate pyproject file`,
-    );
-    return null;
-  }
 }
