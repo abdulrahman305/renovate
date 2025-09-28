@@ -793,6 +793,15 @@ const options: RenovateOptions[] = [
     default: `Dependency Dashboard`,
   },
   {
+    name: 'dependencyDashboardCategory',
+    description:
+      'The category to group branches on the Dependency Dashboard issue.',
+    type: 'string',
+    default: null,
+    cli: false,
+    env: false,
+  },
+  {
     name: 'dependencyDashboardHeader',
     description:
       'Any text added here will be placed first in the Dependency Dashboard issue body.',
@@ -2905,6 +2914,16 @@ const options: RenovateOptions[] = [
     parents: ['customManagers'],
     cli: false,
     env: false,
+    requiredIf: [
+      {
+        siblingProperties: [
+          {
+            property: 'customType',
+            value: 'jsonata',
+          },
+        ],
+      },
+    ],
   },
   {
     name: 'matchStrings',
@@ -3035,6 +3054,7 @@ const options: RenovateOptions[] = [
     description:
       'Set to `true` to fetch the entire list of PRs instead of only those authored by the Renovate user.',
     type: 'boolean',
+    globalOnly: true,
     default: false,
   },
   {
