@@ -1,4 +1,4 @@
-import is from '@sindresorhus/is';
+import { isUndefined } from '@sindresorhus/is';
 import type { SemVer } from 'semver';
 import semver from 'semver';
 import { regEx } from '../../../util/regex';
@@ -16,8 +16,12 @@ function isLatest(input: string): boolean {
   return input === '~latest';
 }
 
+function massageValue(input: string): string {
+  return input.trim().replace(regEx(/^v/i), '');
+}
+
 function parseVersion(input: string): SemVer | null {
-  return semver.parse(input);
+  return semver.parse(massageValue(input));
 }
 
 interface Range {
@@ -26,13 +30,14 @@ interface Range {
 }
 
 function parseRange(input: string): Range | null {
-  const coerced = semver.coerce(input);
+  const stripped = massageValue(input);
+  const coerced = semver.coerce(stripped);
   if (!coerced) {
     return null;
   }
   const { major, minor } = coerced;
 
-  if (regEx(/^\d+$/).test(input)) {
+  if (regEx(/^\d+$/).test(stripped)) {
     return { major };
   }
 
@@ -131,7 +136,7 @@ function matches(version: string, range: string): boolean {
     return false;
   }
 
-  if (is.undefined(r.minor)) {
+  if (isUndefined(r.minor)) {
     return true;
   }
 
@@ -176,7 +181,7 @@ function isLessThanRange(version: string, range: string): boolean {
     return v.major < r.major;
   }
 
-  if (is.undefined(r.minor)) {
+  if (isUndefined(r.minor)) {
     return false;
   }
 
@@ -218,11 +223,13 @@ function getNewValue({
     return newVersion;
   }
 
-  if (is.undefined(range.minor)) {
-    return `${newParsed.major}`;
+  const [prefix] = currentValue.split(massageValue(currentValue));
+
+  if (isUndefined(range.minor)) {
+    return `${prefix}${newParsed.major}`;
   }
 
-  return `${newParsed.major}.${newParsed.minor}`;
+  return `${prefix}${newParsed.major}.${newParsed.minor}`;
 }
 
 function isCompatible(version: string): boolean {
